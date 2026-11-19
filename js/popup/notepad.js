@@ -306,9 +306,9 @@ function replaceNestedTag(html, openRe, renderFn) {
   let out = html;
   for (let pass = 0; pass < 8; pass++) {
     let changed = false;
-    out = out.replace(openRe, (m, arg1, arg2, inner) => {
+    out = out.replace(openRe, (...args) => {
       changed = true;
-      return renderFn(arg1, arg2, inner);
+      return renderFn(...args);
     });
     if (!changed) break;
   }
@@ -371,7 +371,7 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
 
   let html = combined;
 
-  html = replaceNestedTag(html, /\[b\]((?:(?!\[b\])[\s\S])*?)\[\/b\]/gi, (_, _u, inner) => `<strong>${inner}</strong>`);
+  html = replaceNestedTag(html, /\[b\]((?:(?!\[b\])[\s\S])*?)\[\/b\]/gi, (_, inner) => `<strong>${inner}</strong>`);
   html = html.replace(/\[b\]([\s\S]*?)\[\/b\]/gi, '<strong>$1</strong>');
   html = html.replace(/\[i\]([\s\S]*?)\[\/i\]/gi, '<em>$1</em>');
   html = html.replace(/\[u\]([\s\S]*?)\[\/u\]/gi, '<u>$1</u>');
@@ -406,7 +406,7 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
   html = replaceNestedTag(
     html,
     /\[hide(?:=&quot;([^&]*)&quot;|=([^\]]*))?\]((?:(?!\[hide(?:\b|=|\]))[\s\S])*?)\[\/hide\]/gi,
-    (q1, q2, inner) => {
+    (_m, q1, q2, inner) => {
       const title = stripPosMarkers(q1 || q2 || 'Κρυφό περιεχόμενο (κλικ)');
       return `<details class="phpbb-hide"><summary>${title}</summary><div class="phpbb-hide-body">${inner.trim()}</div></details>`;
     }
@@ -419,7 +419,7 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
   html = replaceNestedTag(
     html,
     /\[quote(?:=&quot;([^&]*)&quot;|=([^\]]*))?\]((?:(?!\[quote(?:\b|=|\]))[\s\S])*?)\[\/quote\]/gi,
-    (q1, q2, inner) => {
+    (_m, q1, q2, inner) => {
       const author = stripPosMarkers(q1 || q2 || '');
       const head = author ? `<div style="font-size:0.85em;font-weight:700;margin-bottom:3px;">${author} έγραψε:</div>` : '';
       return `<blockquote class="phpbb-quote">${head}${inner.trim()}</blockquote>`;
