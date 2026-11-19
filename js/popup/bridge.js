@@ -102,6 +102,7 @@ export function init(ac) {
     }
     if (d.type === MSG.PANEL_ACTION) {
       switch (d.action) {
+        case 'set-panel-anchors': toolbar.setPanelAnchors(d); break;
         case 'toggle-settings': toolbar.toggleSettingsFromPanel(d.anchorLeft); break;
         case 'toggle-recent': toolbar.toggleRecentFromPanel(d.anchorLeft); break;
         case 'toggle-notepad': notepad.toggleNotepad(); break;

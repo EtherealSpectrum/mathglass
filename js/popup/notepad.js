@@ -1,18 +1,28 @@
 import { KEYS, MSG } from '../core/constants.js';
 import { $, on, clamp, rafThrottle } from '../core/dom.js';
-import { get, set, mirrorGet } from '../core/storage.js';
+import { get, set, mirrorGet, mirrorSet } from '../core/storage.js';
 import { translateLatexErrorToGreek } from '../core/errors.js';
 import { state } from './settings.js';
-import { renderPartialLatexHtml } from './preview.js';
+import {
+  renderPartialLatexHtml,
+  renderLatexWithCaret,
+  findCaretElement,
+  markCaretElement,
+} from './preview.js';
 import { wrappedCode, copyText, insertTextToPage } from './actions.js';
 
 let notepadOpen = false;
 let autoDollarWrap = true;
 let lastProgWrap = { left: -1, top: -1 };
 let lastProgMath = { el: null, left: -1 };
+let progScrolling = false;
 let lastCursorPos = -1;
+let lastRenderedSrc = null;
+let lastRenderedTheme = null;
+let activeMathEl = null;
+const cleanMathHtmlMap = new WeakMap();
 
-const CURSOR_SENTINEL = '\uFFF0NPCUR\uFFF1';
+const POS_MARK_RE = /\uFFF0POS:(\d+)\uFFF1/g;
 
 export function isNotepadOpen() { return notepadOpen; }
 export function isAutoDollarWrapEnabled() { return autoDollarWrap; }
@@ -43,7 +53,7 @@ export function setNotepadOpen(open) {
     $('#settings-popup')?.classList.remove('active');
     $('#recent-popup')?.classList.remove('active');
     state.notepadUserScrolled = false;
-    renderHybridPreview();
+    renderHybridPreview(true);
     requestAnimationFrame(() => { const np = $('#notepad-input'); try { np?.focus({ preventScroll: true }); } catch { np?.focus(); } });
   } else {
     requestAnimationFrame(() => { const lx = $('#latex-input'); try { lx?.focus({ preventScroll: true }); } catch { lx?.focus(); } });
@@ -53,34 +63,33 @@ export function setNotepadOpen(open) {
 
 export function toggleNotepad() { setNotepadOpen(!notepadOpen); }
 
-export function tokenizeHybridLatex(input) {
-  const tokens = [];
+function scanLatexChunk(chunk, baseOffset, tokens) {
   let textBuf = '';
-  let textStart = 0;
+  let textStart = baseOffset;
   let i = 0;
-  const n = input.length;
+  const n = chunk.length;
 
   const flushText = endIdx => {
     if (textBuf) {
-      tokens.push({ type: 'text', content: textBuf, start: textStart, end: endIdx });
+      tokens.push({ type: 'text', content: textBuf, start: textStart, end: baseOffset + endIdx });
       textBuf = '';
     }
   };
 
   const pushTextChar = (ch, idx) => {
-    if (!textBuf) textStart = idx;
+    if (!textBuf) textStart = baseOffset + idx;
     textBuf += ch;
   };
 
   const findClosing = (start, delim) => {
     let idx = start;
     while (idx < n) {
-      if (input[idx] === '\\' && delim !== '\\)' && delim !== '\\]' && delim !== '[/tex]' && delim !== '[/latex]') {
+      if (chunk[idx] === '\\' && delim !== '\\)' && delim !== '\\]' && delim !== '[/tex]' && delim !== '[/latex]') {
         idx += 2; continue;
       }
       if (delim === '[/tex]' || delim === '[/latex]') {
-        if (input.slice(idx, idx + delim.length).toLowerCase() === delim) return idx;
-      } else if (input.startsWith(delim, idx)) return idx;
+        if (chunk.slice(idx, idx + delim.length).toLowerCase() === delim) return idx;
+      } else if (chunk.startsWith(delim, idx)) return idx;
       idx++;
     }
     return -1;
@@ -89,173 +98,176 @@ export function tokenizeHybridLatex(input) {
   const findSingleDollarEnd = start => {
     let idx = start;
     while (idx < n) {
-      if (input[idx] === '\\') { idx += 2; continue; }
-      if (input[idx] === '\n' && input[idx + 1] === '\n') return -1;
-      if (input[idx] === '$' && input[idx + 1] !== '$') return idx;
-      if (input[idx] === '$' && input[idx + 1] === '$') return -1;
+      if (chunk[idx] === '\\') { idx += 2; continue; }
+      if (chunk[idx] === '\n' && chunk[idx + 1] === '\n') return -1;
+      if (chunk[idx] === '$' && chunk[idx + 1] !== '$') return idx;
+      if (chunk[idx] === '$' && chunk[idx + 1] === '$') return -1;
       idx++;
     }
     return -1;
   };
 
-  while (i < n) {
-    if (input[i] === '\\' && input[i + 1] === '$') { pushTextChar('\\$', i); i += 2; continue; }
+  const isOwnLine = (startIdx, endIdx) => {
+    let l = startIdx - 1;
+    while (l >= 0 && (chunk[l] === ' ' || chunk[l] === '\t')) l--;
+    const atStart = l < 0 || chunk[l] === '\n';
+    let r = endIdx;
+    while (r < n && (chunk[r] === ' ' || chunk[r] === '\t')) r++;
+    const atEnd = r >= n || chunk[r] === '\n' || chunk[r] === '\r';
+    return atStart && atEnd;
+  };
 
-    if (input[i] === '[' && input.slice(i, i + 5).toLowerCase() === '[tex]') {
+  while (i < n) {
+    if (chunk[i] === '\\' && chunk[i + 1] === '$') { pushTextChar('\\$', i); i += 2; continue; }
+
+    if (chunk[i] === '[' && chunk.slice(i, i + 5).toLowerCase() === '[tex]') {
       const end = findClosing(i + 5, '[/tex]');
       if (end !== -1) {
         flushText(i);
-        const inner = input.slice(i + 5, end);
-        const beforeC = i > 0 ? input[i - 1] : '\n';
-        const afterC = end + 6 < n ? input[end + 6] : '\n';
-        const disp = ((beforeC === '\n' || i === 0) && (afterC === '\n' || end + 6 === n)) || inner.includes('\n') || inner.includes('\\displaystyle');
+        const inner = chunk.slice(i + 5, end);
+        const disp = isOwnLine(i, end + 6) ||
+          inner.includes('\n') ||
+          inner.includes('\\displaystyle') ||
+          /\\begin\{(?:cases|aligned|pmatrix|bmatrix|vmatrix|Vmatrix|Bmatrix|matrix|array|gather|split)\}/.test(inner);
         tokens.push({
           type: 'math', display: disp, content: inner,
-          openDelim: input.slice(i, i + 5), closeDelim: input.slice(end, end + 6),
-          start: i, end: end + 6, contentStart: i + 5, contentEnd: end,
+          openDelim: chunk.slice(i, i + 5), closeDelim: chunk.slice(end, end + 6),
+          start: baseOffset + i, end: baseOffset + end + 6,
+          contentStart: baseOffset + i + 5, contentEnd: baseOffset + end,
         });
         i = end + 6; continue;
       }
     }
 
-    if (input[i] === '[' && input.slice(i, i + 7).toLowerCase() === '[latex]') {
+    if (chunk[i] === '[' && chunk.slice(i, i + 7).toLowerCase() === '[latex]') {
       const end = findClosing(i + 7, '[/latex]');
       if (end !== -1) {
         flushText(i);
         tokens.push({
-          type: 'math', display: true, content: input.slice(i + 7, end),
-          openDelim: input.slice(i, i + 7), closeDelim: input.slice(end, end + 8),
-          start: i, end: end + 8, contentStart: i + 7, contentEnd: end,
+          type: 'math', display: true, content: chunk.slice(i + 7, end),
+          openDelim: chunk.slice(i, i + 7), closeDelim: chunk.slice(end, end + 8),
+          start: baseOffset + i, end: baseOffset + end + 8,
+          contentStart: baseOffset + i + 7, contentEnd: baseOffset + end,
         });
         i = end + 8; continue;
       }
     }
 
-    if (input[i] === '$' && input[i + 1] === '$') {
+    if (chunk[i] === '$' && chunk[i + 1] === '$') {
       const end = findClosing(i + 2, '$$');
       if (end !== -1) {
         flushText(i);
         tokens.push({
-          type: 'math', display: true, content: input.slice(i + 2, end),
+          type: 'math', display: true, content: chunk.slice(i + 2, end),
           openDelim: '$$', closeDelim: '$$',
-          start: i, end: end + 2, contentStart: i + 2, contentEnd: end,
+          start: baseOffset + i, end: baseOffset + end + 2,
+          contentStart: baseOffset + i + 2, contentEnd: baseOffset + end,
         });
         i = end + 2; continue;
       }
     }
 
-    if (input[i] === '\\' && input[i + 1] === '[') {
+    if (chunk[i] === '\\' && chunk[i + 1] === '[') {
       const end = findClosing(i + 2, '\\]');
       if (end !== -1) {
         flushText(i);
         tokens.push({
-          type: 'math', display: true, content: input.slice(i + 2, end),
+          type: 'math', display: true, content: chunk.slice(i + 2, end),
           openDelim: '\\[', closeDelim: '\\]',
-          start: i, end: end + 2, contentStart: i + 2, contentEnd: end,
+          start: baseOffset + i, end: baseOffset + end + 2,
+          contentStart: baseOffset + i + 2, contentEnd: baseOffset + end,
         });
         i = end + 2; continue;
       }
     }
 
-    if (input[i] === '\\' && input[i + 1] === '(') {
+    if (chunk[i] === '\\' && chunk[i + 1] === '(') {
       const end = findClosing(i + 2, '\\)');
       if (end !== -1) {
         flushText(i);
         tokens.push({
-          type: 'math', display: false, content: input.slice(i + 2, end),
+          type: 'math', display: false, content: chunk.slice(i + 2, end),
           openDelim: '\\(', closeDelim: '\\)',
-          start: i, end: end + 2, contentStart: i + 2, contentEnd: end,
+          start: baseOffset + i, end: baseOffset + end + 2,
+          contentStart: baseOffset + i + 2, contentEnd: baseOffset + end,
         });
         i = end + 2; continue;
       }
     }
 
-    if (input[i] === '$' && input[i + 1] !== '$') {
+    if (chunk[i] === '$' && chunk[i + 1] !== '$') {
       const end = findSingleDollarEnd(i + 1);
       if (end !== -1 && end > i + 1) {
         flushText(i);
         tokens.push({
-          type: 'math', display: false, content: input.slice(i + 1, end),
+          type: 'math', display: false, content: chunk.slice(i + 1, end),
           openDelim: '$', closeDelim: '$',
-          start: i, end: end + 1, contentStart: i + 1, contentEnd: end,
+          start: baseOffset + i, end: baseOffset + end + 1,
+          contentStart: baseOffset + i + 1, contentEnd: baseOffset + end,
         });
         i = end + 1; continue;
       }
     }
 
-    pushTextChar(input[i], i);
+    pushTextChar(chunk[i], i);
     i++;
   }
 
   flushText(i);
+}
+
+export function tokenizeHybridLatex(input) {
+  const tokens = [];
+  const codeRe = /\[code\]([\s\S]*?)\[\/code\]/gi;
+  let lastIdx = 0;
+  let m;
+
+  while ((m = codeRe.exec(input)) !== null) {
+    if (m.index > lastIdx) {
+      scanLatexChunk(input.slice(lastIdx, m.index), lastIdx, tokens);
+    }
+    tokens.push({
+      type: 'code',
+      content: m[1],
+      raw: m[0],
+      start: m.index,
+      end: m.index + m[0].length,
+    });
+    lastIdx = m.index + m[0].length;
+  }
+
+  if (lastIdx < input.length) {
+    scanLatexChunk(input.slice(lastIdx), lastIdx, tokens);
+  }
   return tokens;
 }
 
 export function isCursorInsideKaTeX(input, cursorPos) {
   const pos = Math.max(0, Math.min(input.length, cursorPos));
+  const tokens = tokenizeHybridLatex(input);
+
+  for (const tok of tokens) {
+    if (tok.type === 'code') {
+      if (pos >= tok.start && pos <= tok.end) return false;
+    } else if (tok.type === 'math') {
+      if (pos >= tok.contentStart && pos <= tok.contentEnd) return true;
+    }
+  }
+
+  const activeText = tokens.find(t => t.type === 'text' && pos >= t.start && pos <= t.end);
+  if (!activeText) return false;
+
+  const chunk = activeText.content;
+  const localPos = pos - activeText.start;
   let i = 0;
-  const n = input.length;
-
-  const findClosing = (start, delim) => {
-    let idx = start;
-    while (idx < n) {
-      if (input[idx] === '\\' && delim !== '\\)' && delim !== '\\]' && delim !== '[/tex]' && delim !== '[/latex]') {
-        idx += 2; continue;
-      }
-      if (delim === '[/tex]' || delim === '[/latex]') {
-        if (input.slice(idx, idx + delim.length).toLowerCase() === delim) return idx;
-      } else if (input.startsWith(delim, idx)) return idx;
-      idx++;
-    }
-    return -1;
-  };
-
-  const findSingleDollarEnd = start => {
-    let idx = start;
-    while (idx < n) {
-      if (input[idx] === '\\') { idx += 2; continue; }
-      if (input[idx] === '\n' && input[idx + 1] === '\n') return -1;
-      if (input[idx] === '$' && input[idx + 1] !== '$') return idx;
-      if (input[idx] === '$' && input[idx + 1] === '$') return -1;
-      idx++;
-    }
-    return -1;
-  };
-
-  while (i < n) {
-    if (i > pos) return false;
-    if (input[i] === '\\' && input[i + 1] === '$') { i += 2; continue; }
-
-    if (input[i] === '[' && input.slice(i, i + 5).toLowerCase() === '[tex]') {
-      const end = findClosing(i + 5, '[/tex]');
-      if (end !== -1) { if (pos >= i + 5 && pos <= end) return true; i = end + 6; continue; }
-      if (pos >= i + 5) return true;
-    }
-    if (input[i] === '[' && input.slice(i, i + 7).toLowerCase() === '[latex]') {
-      const end = findClosing(i + 7, '[/latex]');
-      if (end !== -1) { if (pos >= i + 7 && pos <= end) return true; i = end + 8; continue; }
-      if (pos >= i + 7) return true;
-    }
-    if (input[i] === '$' && input[i + 1] === '$') {
-      const end = findClosing(i + 2, '$$');
-      if (end !== -1) { if (pos >= i + 2 && pos <= end) return true; i = end + 2; continue; }
-      if (pos >= i + 2) return true;
-    }
-    if (input[i] === '\\' && input[i + 1] === '[') {
-      const end = findClosing(i + 2, '\\]');
-      if (end !== -1) { if (pos >= i + 2 && pos <= end) return true; i = end + 2; continue; }
-      if (pos >= i + 2) return true;
-    }
-    if (input[i] === '\\' && input[i + 1] === '(') {
-      const end = findClosing(i + 2, '\\)');
-      if (end !== -1) { if (pos >= i + 2 && pos <= end) return true; i = end + 2; continue; }
-      if (pos >= i + 2) return true;
-    }
-    if (input[i] === '$' && input[i + 1] !== '$') {
-      const end = findSingleDollarEnd(i + 1);
-      if (end !== -1) { if (pos >= i + 1 && pos <= end) return true; i = end + 1; continue; }
-      if (pos >= i + 1 && !input.slice(i + 1, pos).includes('\n\n')) return true;
-    }
+  while (i < localPos) {
+    if (chunk[i] === '\\' && chunk[i + 1] === '$') { i += 2; continue; }
+    if (chunk[i] === '[' && chunk.slice(i, i + 5).toLowerCase() === '[tex]' && localPos >= i + 5) return true;
+    if (chunk[i] === '[' && chunk.slice(i, i + 7).toLowerCase() === '[latex]' && localPos >= i + 7) return true;
+    if (chunk[i] === '$' && chunk[i + 1] === '$' && localPos >= i + 2) return true;
+    if (chunk[i] === '\\' && chunk[i + 1] === '[' && localPos >= i + 2) return true;
+    if (chunk[i] === '\\' && chunk[i + 1] === '(' && localPos >= i + 2) return true;
+    if (chunk[i] === '$' && chunk[i + 1] !== '$' && localPos >= i + 1 && !chunk.slice(i + 1, localPos).includes('\n\n')) return true;
     i++;
   }
   return false;
@@ -265,249 +277,410 @@ function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function injectCursorSentinelInText(rawText, localPos) {
-  let pos = clamp(localPos, 0, rawText.length);
-  const mediaRe = /\[(url|img|ggb)\][\s\S]*?\[\/\1\]/gi;
-  let m;
-  while ((m = mediaRe.exec(rawText)) !== null) {
-    if (pos > m.index && pos < m.index + m[0].length) {
-      pos = m.index + m[0].length;
+function stripPosMarkers(str) {
+  return String(str).replace(POS_MARK_RE, '');
+}
+
+function annotateTextOffsets(rawText, baseOffset) {
+  let out = `\uFFF0POS:${baseOffset}\uFFF1`;
+  let last = 0;
+  for (let i = 0; i < rawText.length; i++) {
+    if (rawText[i] === '\n') {
+      out += rawText.slice(last, i + 1) + `\uFFF0POS:${baseOffset + i + 1}\uFFF1`;
+      last = i + 1;
     }
   }
-  const tagRe = /\[(?:\/?(?:b|i|u|s|quote|code|list|img|url|size|color|ggb|hide|tex|latex|table|tr|th|td)|\*)(?:=[^\]]*)?\]/gi;
-  while ((m = tagRe.exec(rawText)) !== null) {
-    if (pos > m.index && pos < m.index + m[0].length) {
-      pos = m.index + m[0].length;
-    }
+  out += rawText.slice(last);
+  return out;
+}
+
+function safeColorValue(raw) {
+  const clean = stripPosMarkers(raw).trim();
+  if (/^(?:#[0-9a-f]{3,8}|[a-z]{3,20}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\))$/i.test(clean)) {
+    return clean;
   }
-  return rawText.slice(0, pos) + CURSOR_SENTINEL + rawText.slice(pos);
+  return '';
+}
+
+function replaceNestedTag(html, openRe, renderFn) {
+  let out = html;
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+    out = out.replace(openRe, (m, arg1, arg2, inner) => {
+      changed = true;
+      return renderFn(arg1, arg2, inner);
+    });
+    if (!changed) break;
+  }
+  return out;
+}
+
+function renderSingleMathInner(rawMath, displayMode, isLight, cursorOffset = null) {
+  const inner = rawMath.trim();
+  if (!inner) return '';
+
+  if (typeof cursorOffset === 'number') {
+    const res = renderLatexWithCaret(rawMath, cursorOffset, false, displayMode, isLight);
+    if (res.ok) return res.html;
+    const errTitle = escHtml(translateLatexErrorToGreek(res.error));
+    return `<span class="np-math-error" title="${errTitle}">${res.html}</span>`;
+  }
+
+  try {
+    return katex.renderToString(inner, {
+      throwOnError: true,
+      displayMode,
+    });
+  } catch (err) {
+    const errTitle = escHtml(translateLatexErrorToGreek(err));
+    const partial = renderPartialLatexHtml(inner, err, false, displayMode, isLight);
+    return `<span class="np-math-error" title="${errTitle}">${partial}</span>`;
+  }
 }
 
 export function renderPhpbbHtml(input, isLight, options = {}) {
-  const { cursorPos = null, metaOut = null } = options;
-  const trackCursor = typeof cursorPos === 'number' && cursorPos >= 0;
+  const { trackCursor = false } = options;
   const tokens = tokenizeHybridLatex(input);
-  const mathSlots = [];
+  const slots = [];
   let combined = '';
-  let cursorPlaced = false;
-  let activeMathIndex = -1;
 
   for (const tok of tokens) {
-    if (tok.type === 'text') {
-      let rawText = tok.content;
-      if (trackCursor && !cursorPlaced && activeMathIndex === -1 && cursorPos >= tok.start && cursorPos <= tok.end) {
-        rawText = injectCursorSentinelInText(rawText, cursorPos - tok.start);
-        cursorPlaced = true;
-      }
-      combined += escHtml(rawText.replace(/\\\$/g, '$'));
+    if (tok.type === 'code') {
+      const idx = slots.length;
+      slots.push(`<pre class="phpbb-code" data-np-start="${tok.start}" data-np-end="${tok.end}">${escHtml(tok.content.trim())}</pre>`);
+      combined += `@@NP_SLOT_${idx}@@`;
+    } else if (tok.type === 'text') {
+      const textWithMarkers = trackCursor ? annotateTextOffsets(tok.content, tok.start) : tok.content;
+      combined += escHtml(textWithMarkers.replace(/\\\$/g, '$'));
     } else {
-      const idx = mathSlots.length;
+      const idx = slots.length;
       const inner = tok.content.trim();
-      const isActive = trackCursor && !cursorPlaced && activeMathIndex === -1 && cursorPos >= tok.start && cursorPos <= tok.end;
-      if (isActive) {
-        activeMathIndex = idx;
-        if (metaOut) {
-          const offsetInMath = clamp(cursorPos - tok.contentStart, 0, tok.content.length);
-          metaOut.activeMathBefore = tok.content.slice(0, offsetInMath);
-          metaOut.activeMathDisplay = tok.display;
-        }
-      }
+      const rendered = inner
+        ? renderSingleMathInner(tok.content, tok.display, isLight, null)
+        : escHtml((tok.openDelim || '$') + (tok.closeDelim || '$'));
 
-      let rendered = '';
-      if (!inner) {
-        rendered = escHtml((tok.openDelim || '$') + (tok.closeDelim || '$'));
-      } else {
-        try {
-          rendered = katex.renderToString(inner, {
-            throwOnError: true,
-            displayMode: tok.display,
-          });
-        } catch (err) {
-          const errTitle = escHtml(translateLatexErrorToGreek(err));
-          const partial = renderPartialLatexHtml(inner, err, false, tok.display, isLight);
-          rendered = `<span class="np-math-error" title="${errTitle}">${partial}</span>`;
-        }
-      }
-
-      const activeAttr = isActive ? ' data-np-active-math="1"' : '';
-      mathSlots.push(
+      const attrs = `data-np-start="${tok.start}" data-np-end="${tok.end}" data-np-cstart="${tok.contentStart}" data-np-cend="${tok.contentEnd}" data-np-display="${tok.display ? '1' : '0'}"`;
+      slots.push(
         tok.display
-          ? `<div class="np-math-display"${activeAttr}>${rendered}</div>`
-          : `<span class="np-math-inline"${activeAttr}>${rendered}</span>`
+          ? `<div class="np-math-display" ${attrs}>${rendered}</div>`
+          : `<span class="np-math-inline" ${attrs}>${rendered}</span>`
       );
-      combined += `@@MATH_SLOT_${idx}@@`;
+      combined += `@@NP_SLOT_${idx}@@`;
     }
   }
 
   let html = combined;
-  html = html.replace(/\[code\]([\s\S]*?)\[\/code\]/gi, (_, c) => `<pre class="phpbb-code">${c.trim()}</pre>`);
+
+  html = replaceNestedTag(html, /\[b\]((?:(?!\[b\])[\s\S])*?)\[\/b\]/gi, (_, _u, inner) => `<strong>${inner}</strong>`);
   html = html.replace(/\[b\]([\s\S]*?)\[\/b\]/gi, '<strong>$1</strong>');
   html = html.replace(/\[i\]([\s\S]*?)\[\/i\]/gi, '<em>$1</em>');
   html = html.replace(/\[u\]([\s\S]*?)\[\/u\]/gi, '<u>$1</u>');
   html = html.replace(/\[s\]([\s\S]*?)\[\/s\]/gi, '<s>$1</s>');
-  for (let pass = 0; pass < 3; pass++) {
+  html = html.replace(/\[center\]([\s\S]*?)\[\/center\]/gi, (_, inner) => `<div class="phpbb-center" style="text-align:center;">${inner.trim()}</div>`);
+
+  for (let pass = 0; pass < 4; pass++) {
     html = html.replace(/\[size=(\d{2,3})\]([\s\S]*?)\[\/size\]/gi, (_, sz, inner) => {
       const pct = Math.max(60, Math.min(250, parseInt(sz, 10) || 100));
       return `<span style="font-size:${pct}%;line-height:1.35;">${inner}</span>`;
     });
+    html = html.replace(/\[color=([^\]]+)\]([\s\S]*?)\[\/color\]/gi, (_, col, inner) => {
+      const safe = safeColorValue(col);
+      return safe ? `<span style="color:${safe};">${inner}</span>` : inner;
+    });
   }
-  html = html.replace(/\[url=(https?:\/\/[^\]]+)\]([\s\S]*?)\[\/url\]/gi, '<a href="$1" target="_blank" rel="noopener noreferrer">$2</a>');
-  html = html.replace(/\[url\](https?:\/\/[^\[]+)\[\/url\]/gi, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-  html = html.replace(/\[img\](https?:\/\/[^\[]+)\[\/img\]/gi, '<img src="$1" alt="Εικόνα phpBB" loading="lazy">');
-  html = html.replace(/\[ggb\]([\s\S]*?)\[\/ggb\]/gi, (_, id) => `<div class="phpbb-ggb">📐 GeoGebra: <b>${id.trim()}</b></div>`);
-  html = html.replace(/\[hide(?:=&quot;([^&]*)&quot;|=([^\]]*))?\]([\s\S]*?)\[\/hide\]/gi, (_, q1, q2, inner) => {
-    const title = q1 || q2 || 'Κρυφό περιεχόμενο (κλικ)';
-    const hasCursor = trackCursor && (
-      inner.includes(CURSOR_SENTINEL) ||
-      (activeMathIndex !== -1 && inner.includes(`@@MATH_SLOT_${activeMathIndex}@@`))
-    );
-    return `<details class="phpbb-hide"${hasCursor ? ' open' : ''}><summary>${title}</summary><div class="phpbb-hide-body">${inner.trim()}</div></details>`;
+
+  html = html.replace(/\[url=((?:https?:\/\/|mailto:)[^\]]+)\]([\s\S]*?)\[\/url\]/gi, (_, href, label) => {
+    const cleanHref = stripPosMarkers(href).trim();
+    return `<a href="${cleanHref}" target="_blank" rel="noopener noreferrer">${label}</a>`;
   });
+  html = html.replace(/\[url\]((?:https?:\/\/|mailto:)[^\[]+)\[\/url\]/gi, (_, href) => {
+    const cleanHref = stripPosMarkers(href).trim();
+    return `<a href="${cleanHref}" target="_blank" rel="noopener noreferrer">${cleanHref}</a>`;
+  });
+  html = html.replace(/\[img\](https?:\/\/[^\[]+)\[\/img\]/gi, (_, src) => {
+    const cleanSrc = stripPosMarkers(src).trim();
+    return `<img src="${cleanSrc}" alt="Εικόνα phpBB" loading="lazy">`;
+  });
+  html = html.replace(/\[ggb\]([\s\S]*?)\[\/ggb\]/gi, (_, id) => `<div class="phpbb-ggb">📐 GeoGebra: <b>${stripPosMarkers(id).trim()}</b></div>`);
+
+  html = replaceNestedTag(
+    html,
+    /\[hide(?:=&quot;([^&]*)&quot;|=([^\]]*))?\]((?:(?!\[hide(?:\b|=|\]))[\s\S])*?)\[\/hide\]/gi,
+    (q1, q2, inner) => {
+      const title = stripPosMarkers(q1 || q2 || 'Κρυφό περιεχόμενο (κλικ)');
+      return `<details class="phpbb-hide"><summary>${title}</summary><div class="phpbb-hide-body">${inner.trim()}</div></details>`;
+    }
+  );
+  html = html.replace(/\[hide(?:=&quot;([^&]*)&quot;|=([^\]]*))?\]([\s\S]*?)\[\/hide\]/gi, (_, q1, q2, inner) => {
+    const title = stripPosMarkers(q1 || q2 || 'Κρυφό περιεχόμενο (κλικ)');
+    return `<details class="phpbb-hide"><summary>${title}</summary><div class="phpbb-hide-body">${inner.trim()}</div></details>`;
+  });
+
+  html = replaceNestedTag(
+    html,
+    /\[quote(?:=&quot;([^&]*)&quot;|=([^\]]*))?\]((?:(?!\[quote(?:\b|=|\]))[\s\S])*?)\[\/quote\]/gi,
+    (q1, q2, inner) => {
+      const author = stripPosMarkers(q1 || q2 || '');
+      const head = author ? `<div style="font-size:0.85em;font-weight:700;margin-bottom:3px;">${author} έγραψε:</div>` : '';
+      return `<blockquote class="phpbb-quote">${head}${inner.trim()}</blockquote>`;
+    }
+  );
   html = html.replace(/\[quote(?:=&quot;([^&]*)&quot;|=([^\]]*))?\]([\s\S]*?)\[\/quote\]/gi, (_, q1, q2, inner) => {
-    const author = q1 || q2;
+    const author = stripPosMarkers(q1 || q2 || '');
     const head = author ? `<div style="font-size:0.85em;font-weight:700;margin-bottom:3px;">${author} έγραψε:</div>` : '';
     return `<blockquote class="phpbb-quote">${head}${inner.trim()}</blockquote>`;
   });
+
   html = html.replace(/\[table\]([\s\S]*?)\[\/table\]/gi, (_, inner) => {
-    const clean = inner
+    let clean = inner
       .replace(/\[tr\]/gi, '<tr>').replace(/\[\/tr\]/gi, '</tr>')
       .replace(/\[th\]/gi, '<th>').replace(/\[\/th\]/gi, '</th>')
       .replace(/\[td\]/gi, '<td>').replace(/\[\/td\]/gi, '</td>');
+    clean = clean.replace(/(<\/?(?:tr|table)[^>]*>)\s*(?:\uFFF0POS:\d+\uFFF1|\s)+(?=<\/?(?:tr|th|td|table))/gi, '$1');
+    clean = clean.replace(/^(?:\uFFF0POS:\d+\uFFF1|\s)+(?=<tr)/i, '');
     return `<table class="phpbb-table">${clean}</table>`;
   });
-  html = html.replace(/\[list(=1|=a|=i)?\]([\s\S]*?)\[\/list\]/gi, (_, ordered, inner) => {
-    const tag = ordered ? 'ol' : 'ul';
-    const parts = inner.split(/\[\*\]/i).map(s => s.trim()).filter(Boolean);
-    const items = parts.length ? parts.map(p => `<li>${p}</li>`).join('') : `<li>${inner.trim()}</li>`;
-    return `<${tag}>${items}</${tag}>`;
+
+  html = html.replace(/\[list(=1|=a|=i)?\]([\s\S]*?)\[\/list\]/gi, (_, listType, inner) => {
+    const tag = listType ? 'ol' : 'ul';
+    const typeAttr = listType === '=a' ? ' type="a"' : listType === '=i' ? ' type="i"' : '';
+    const chunks = inner.split(/\[\*\]/i);
+    let itemsHtml = '';
+    if (chunks.length > 1) {
+      const validChunks = chunks.slice(1).map(s => s.trim()).filter(s => stripPosMarkers(s).length > 0 || s.includes('\uFFF0POS:'));
+      itemsHtml = validChunks.map(p => `<li>${p}</li>`).join('');
+    } else {
+      itemsHtml = `<li>${inner.trim()}</li>`;
+    }
+    return `<${tag}${typeAttr}>${itemsHtml}</${tag}>`;
   });
 
-  html = html.replace(/@@MATH_SLOT_(\d+)@@/g, (_, idx) => mathSlots[Number(idx)] || '');
+  html = html.replace(/@@NP_SLOT_(\d+)@@/g, (_, idx) => slots[Number(idx)] || '');
+
+  html = html.replace(/\r?\n(?=(?:\uFFF0POS:\d+\uFFF1)*<(?:div class="(?:np-math-display|phpbb-ggb|phpbb-center)"|blockquote\b|pre class="phpbb-code"|details class="phpbb-hide"|ul\b|ol\b|table class="phpbb-table"))/g, '');
+  html = html.replace(/(<\/(?:div|blockquote|pre|details|ul|ol|table)>)(?:\r?\n)/g, '$1');
+
   if (trackCursor) {
-    html = html.split(CURSOR_SENTINEL).join('<span id="np-cursor-anchor" class="np-cursor-anchor" aria-hidden="true"></span>');
+    html = html.replace(POS_MARK_RE, '<span class="np-pos" data-pos="$1" aria-hidden="true"></span>');
+  } else {
+    html = html.replace(POS_MARK_RE, '');
   }
+
   return html;
 }
 
-function measureMathPrefixWidth(beforeRaw, previewEl, mathEl, displayMode) {
-  const line = beforeRaw.split('\\\\').pop() || '';
-  const cleaned = line.includes('\\begin') ? line : line.replace(/&/g, ' ');
-  if (!cleaned.trim()) return 0;
-  const t = document.createElement('div');
-  t.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;left:-9999px;top:0;';
-  t.style.fontSize = getComputedStyle(previewEl).fontSize;
-  t.style.fontFamily = getComputedStyle(mathEl).fontFamily;
-  let w = 0;
-  try {
-    katex.render(cleaned, t, { throwOnError: false, displayMode });
-    document.body.appendChild(t);
-    w = t.getBoundingClientRect().width;
-  } catch { }
-  t.remove();
-  return w;
+function findBestPosAnchor(previewEl, cursorPos) {
+  const anchors = previewEl.querySelectorAll('.np-pos[data-pos]');
+  if (!anchors.length) return null;
+  let best = anchors[0];
+  let bestVal = -1;
+  for (const el of anchors) {
+    const val = Number(el.getAttribute('data-pos'));
+    if (Number.isNaN(val)) continue;
+    if (val <= cursorPos && val >= bestVal) {
+      best = el;
+      bestVal = val;
+    } else if (val > cursorPos) {
+      break;
+    }
+  }
+  return best;
 }
 
-function scrollNotepadToCursor(src, cursorPos, meta) {
+function scrollRectIntoWrap(previewWrap, rect, padX = 28, padY = 18) {
+  if (!rect || (rect.height === 0 && rect.top === 0 && rect.bottom === 0)) return;
+  const wRect = previewWrap.getBoundingClientRect();
+  const maxY = Math.max(0, previewWrap.scrollHeight - previewWrap.clientHeight);
+  const maxX = Math.max(0, previewWrap.scrollWidth - previewWrap.clientWidth);
+
+  if (maxY > 0) {
+    if (rect.bottom > wRect.bottom - padY) {
+      previewWrap.scrollTop = clamp(previewWrap.scrollTop + (rect.bottom - wRect.bottom) + padY, 0, maxY);
+    } else if (rect.top < wRect.top + padY) {
+      previewWrap.scrollTop = clamp(previewWrap.scrollTop - (wRect.top - rect.top) - padY, 0, maxY);
+    }
+  }
+  if (maxX > 0) {
+    if (rect.right > wRect.right - padX) {
+      previewWrap.scrollLeft = clamp(previewWrap.scrollLeft + (rect.right - wRect.right) + padX, 0, maxX);
+    } else if (rect.left < wRect.left + padX) {
+      previewWrap.scrollLeft = clamp(previewWrap.scrollLeft - (wRect.left - rect.left) - padX, 0, maxX);
+    }
+  }
+}
+
+function restoreActiveMathBlock() {
+  if (activeMathEl && activeMathEl.isConnected) {
+    activeMathEl.classList.remove('np-math-active');
+    const clean = cleanMathHtmlMap.get(activeMathEl);
+    if (typeof clean === 'string') {
+      activeMathEl.innerHTML = clean;
+    }
+  }
+  activeMathEl = null;
+}
+
+function updateNotepadCursorTracking(shouldScroll) {
+  const inputEl = $('#notepad-input');
   const previewWrap = $('#notepad-preview-wrap');
   const previewEl = $('#notepad-preview');
-  if (!previewWrap || !previewEl) return;
+  if (!inputEl || !previewWrap || !previewEl) return;
 
-  const activeMath = previewEl.querySelector('[data-np-active-math="1"]');
-  if (activeMath) {
-    if (activeMath.classList.contains('np-math-display') && activeMath.scrollWidth > activeMath.clientWidth) {
-      const maxMathX = Math.max(0, activeMath.scrollWidth - activeMath.clientWidth);
-      const w = measureMathPrefixWidth(meta.activeMathBefore || '', previewEl, activeMath, meta.activeMathDisplay);
-      const katexBox = activeMath.querySelector('.katex-display > .katex, .katex');
-      const startOff = katexBox ? Math.max(0, katexBox.offsetLeft) : 0;
-      const cursorX = startOff + w;
-      let targetX = activeMath.scrollLeft;
-      if (cursorX < activeMath.scrollLeft + 40) {
-        targetX = Math.max(0, cursorX - 40);
-      } else if (cursorX > activeMath.scrollLeft + activeMath.clientWidth - 60) {
-        targetX = clamp(cursorX - activeMath.clientWidth + 60, 0, maxMathX);
+  const src = inputEl.value;
+  const cursorPos = getActiveCursorPos(inputEl);
+  lastCursorPos = cursorPos;
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+
+  if (!src.trim()) {
+    restoreActiveMathBlock();
+    lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+    return;
+  }
+
+  let matchedMath = null;
+  let matchedCode = null;
+  const blocks = previewEl.querySelectorAll('[data-np-start][data-np-end]');
+  for (const b of blocks) {
+    if (b.classList.contains('phpbb-code')) {
+      const s = Number(b.getAttribute('data-np-start'));
+      const e = Number(b.getAttribute('data-np-end'));
+      if (cursorPos >= s && cursorPos <= e) { matchedCode = b; break; }
+    } else {
+      const cs = Number(b.getAttribute('data-np-cstart'));
+      const ce = Number(b.getAttribute('data-np-cend'));
+      if (cursorPos >= cs && cursorPos <= ce) { matchedMath = b; break; }
+    }
+  }
+
+  if (activeMathEl && activeMathEl !== matchedMath) {
+    restoreActiveMathBlock();
+  }
+
+  let caretEl = null;
+  if (matchedMath) {
+    const cs = Number(matchedMath.getAttribute('data-np-cstart'));
+    const ce = Number(matchedMath.getAttribute('data-np-cend'));
+    const rawMath = src.slice(cs, ce);
+    if (rawMath.trim()) {
+      if (!cleanMathHtmlMap.has(matchedMath)) {
+        cleanMathHtmlMap.set(matchedMath, matchedMath.innerHTML);
       }
-      activeMath.scrollLeft = targetX;
-      lastProgMath = { el: activeMath, left: activeMath.scrollLeft };
+      const disp = matchedMath.getAttribute('data-np-display') === '1';
+      matchedMath.innerHTML = renderSingleMathInner(rawMath, disp, isLight, cursorPos - cs);
+      caretEl = markCaretElement(matchedMath);
     }
+    matchedMath.classList.add('np-math-active');
+    activeMathEl = matchedMath;
+  }
 
-    const wRect = previewWrap.getBoundingClientRect();
-    const mRect = activeMath.getBoundingClientRect();
-    if (mRect.bottom > wRect.bottom - 14) {
-      previewWrap.scrollTop += (mRect.bottom - wRect.bottom) + 18;
-    } else if (mRect.top < wRect.top + 14) {
-      previewWrap.scrollTop -= (wRect.top - mRect.top) + 18;
-    }
-    if (previewWrap.scrollWidth > previewWrap.clientWidth) {
-      if (mRect.right > wRect.right - 20) previewWrap.scrollLeft += (mRect.right - wRect.right) + 28;
-      else if (mRect.left < wRect.left + 20) previewWrap.scrollLeft -= (wRect.left - mRect.left) + 28;
-    }
+  if (!shouldScroll || state.notepadUserScrolled || document.body.classList.contains('notepad-reader-mode')) {
     lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
     return;
   }
 
-  const anchor = previewEl.querySelector('#np-cursor-anchor');
-  if (!anchor) {
-    lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
-    return;
-  }
+  progScrolling = true;
+  try {
+    if (matchedMath) {
+      let det = matchedMath.closest('details.phpbb-hide');
+      while (det) {
+        det.open = true;
+        det = det.parentElement?.closest('details.phpbb-hide');
+      }
 
-  if (!src.slice(cursorPos).trim() && previewWrap.scrollHeight > previewWrap.clientHeight) {
-    previewWrap.scrollTop = previewWrap.scrollHeight;
-  } else {
-    const wRect = previewWrap.getBoundingClientRect();
-    const aRect = anchor.getBoundingClientRect();
-    if (aRect.bottom > wRect.bottom - 16) {
-      previewWrap.scrollTop += (aRect.bottom - wRect.bottom) + 22;
-    } else if (aRect.top < wRect.top + 16) {
-      previewWrap.scrollTop -= (wRect.top - aRect.top) + 22;
+      if (caretEl) {
+        if (matchedMath.classList.contains('np-math-display') && matchedMath.scrollWidth > matchedMath.clientWidth) {
+          const bRect = matchedMath.getBoundingClientRect();
+          const cRect = caretEl.getBoundingClientRect();
+          const maxMathX = Math.max(0, matchedMath.scrollWidth - matchedMath.clientWidth);
+          if (cRect.right > bRect.right - 32) {
+            matchedMath.scrollLeft = clamp(matchedMath.scrollLeft + (cRect.right - bRect.right) + 48, 0, maxMathX);
+          } else if (cRect.left < bRect.left + 32) {
+            matchedMath.scrollLeft = clamp(matchedMath.scrollLeft - (bRect.left - cRect.left) - 48, 0, maxMathX);
+          }
+          lastProgMath = { el: matchedMath, left: matchedMath.scrollLeft };
+        }
+        scrollRectIntoWrap(previewWrap, caretEl.getBoundingClientRect(), 32, 20);
+      } else {
+        scrollRectIntoWrap(previewWrap, matchedMath.getBoundingClientRect(), 24, 18);
+      }
+      return;
     }
-  }
 
-  const codeBlock = anchor.closest('pre.phpbb-code');
-  if (codeBlock && codeBlock.scrollWidth > codeBlock.clientWidth) {
-    const cRect = codeBlock.getBoundingClientRect();
-    const aRect = anchor.getBoundingClientRect();
-    if (aRect.right > cRect.right - 20) codeBlock.scrollLeft += (aRect.right - cRect.right) + 28;
-    else if (aRect.left < cRect.left + 20) codeBlock.scrollLeft -= (cRect.left - aRect.left) + 28;
-    lastProgMath = { el: codeBlock, left: codeBlock.scrollLeft };
-  }
-  if (previewWrap.scrollWidth > previewWrap.clientWidth) {
-    const wRect = previewWrap.getBoundingClientRect();
-    const aRect = anchor.getBoundingClientRect();
-    if (aRect.right > wRect.right - 24) previewWrap.scrollLeft += (aRect.right - wRect.right) + 32;
-    else if (aRect.left < wRect.left + 24) previewWrap.scrollLeft -= (wRect.left - aRect.left) + 32;
-  }
+    if (matchedCode) {
+      let det = matchedCode.closest('details.phpbb-hide');
+      while (det) {
+        det.open = true;
+        det = det.parentElement?.closest('details.phpbb-hide');
+      }
+      scrollRectIntoWrap(previewWrap, matchedCode.getBoundingClientRect(), 24, 18);
+      return;
+    }
 
-  lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+    const posAnchor = findBestPosAnchor(previewEl, cursorPos);
+    if (posAnchor) {
+      let det = posAnchor.closest('.phpbb-hide-body')?.closest('details.phpbb-hide');
+      while (det) {
+        det.open = true;
+        det = det.parentElement?.closest('details.phpbb-hide');
+      }
+
+      if (!src.slice(cursorPos).trim() && previewWrap.scrollHeight > previewWrap.clientHeight) {
+        previewWrap.scrollTop = previewWrap.scrollHeight;
+      } else {
+        scrollRectIntoWrap(previewWrap, posAnchor.getBoundingClientRect(), 24, 18);
+      }
+    }
+  } finally {
+    lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+    requestAnimationFrame(() => { progScrolling = false; });
+  }
 }
 
-export function renderHybridPreview() {
+export function renderHybridPreview(force = false) {
   const inputEl = $('#notepad-input');
   const previewEl = $('#notepad-preview');
   const previewWrap = $('#notepad-preview-wrap');
   if (!inputEl || !previewEl) return;
 
   const src = inputEl.value;
-  const follow = !state.notepadUserScrolled;
-  const cursorPos = getActiveCursorPos(inputEl);
-  lastCursorPos = cursorPos;
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
 
-  if (!src.trim()) {
-    previewEl.innerHTML = '<span class="np-placeholder">Η υβριδική προεπισκόπηση (phpBB + KaTeX) θα εμφανιστεί εδώ…</span>';
-    if (previewWrap) lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+  if (!force && src === lastRenderedSrc && isLight === lastRenderedTheme) {
+    updateNotepadCursorTracking(!state.notepadUserScrolled);
     return;
   }
 
-  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-  const meta = { activeMathBefore: '', activeMathDisplay: false };
-  previewEl.innerHTML = renderPhpbbHtml(src, isLight, {
-    cursorPos,
-    metaOut: meta,
+  lastRenderedSrc = src;
+  lastRenderedTheme = isLight;
+  activeMathEl = null;
+
+  const openSummaries = new Set();
+  previewEl.querySelectorAll('details.phpbb-hide[open] > summary').forEach((sum, idx) => {
+    openSummaries.add(`${idx}:${sum.textContent}`);
   });
 
-  if (follow && !document.body.classList.contains('notepad-reader-mode')) {
-    requestAnimationFrame(() => scrollNotepadToCursor(src, cursorPos, meta));
+  progScrolling = true;
+  try {
+    if (!src.trim()) {
+      previewEl.innerHTML = '<span class="np-placeholder">Η υβριδική προεπισκόπηση (phpBB + KaTeX) θα εμφανιστεί εδώ…</span>';
+    } else {
+      previewEl.innerHTML = renderPhpbbHtml(src, isLight, { trackCursor: true });
+      if (openSummaries.size) {
+        previewEl.querySelectorAll('details.phpbb-hide > summary').forEach((sum, idx) => {
+          if (openSummaries.has(`${idx}:${sum.textContent}`)) {
+            sum.parentElement.open = true;
+          }
+        });
+      }
+    }
+  } finally {
+    if (previewWrap) lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+    requestAnimationFrame(() => { progScrolling = false; });
   }
+
+  window.__refreshNotepadCounter?.();
+
+  requestAnimationFrame(() => updateNotepadCursorTracking(!state.notepadUserScrolled));
 }
 
 function wrapInNotepad(before, after, fallback = '') {
@@ -528,14 +701,14 @@ function wrapInNotepad(before, after, fallback = '') {
     ta.setSelectionRange(s + text.length, s + text.length);
   }
   state.notepadUserScrolled = false;
-  renderHybridPreview();
+  renderHybridPreview(true);
   window.__refreshSyntaxHighlight?.();
   set(KEYS.notepadText, ta.value);
 }
 
 function clearBbcode(input) {
   return input
-    .replace(/\[\/?(?:b|i|u|s|quote|code|list|img|url|size|ggb|hide|table|tr|th|td)(?:=[^\]]*)?\]/gi, '')
+    .replace(/\[\/?(?:b|i|u|s|quote|code|list|img|url|size|color|center|ggb|hide|table|tr|th|td)(?:=[^\]]*)?\]/gi, '')
     .replace(/\[\*\]\s*/g, '• ')
     .replace(/^#{1,6}\s+/gm, '');
 }
@@ -557,7 +730,6 @@ export function init(ac) {
     saveTimer = setTimeout(() => set(KEYS.notepadText, ta.value), 200);
   };
 
-  // Auto-$ toggle state
   const autoDollarBtn = $('#notepad-auto-dollar-btn');
   const syncAutoDollarBtn = () => {
     if (!autoDollarBtn) return;
@@ -571,6 +743,14 @@ export function init(ac) {
   if (typeof cachedAd === 'boolean') autoDollarWrap = cachedAd;
   syncAutoDollarBtn();
 
+  const applySavedNotepadHeight = h => {
+    if (!(typeof h === 'number' && h > 60)) return;
+    const bodyEl = $('.notepad-body');
+    const maxH = Math.max(90, (bodyEl?.clientHeight || innerHeight) - 85);
+    const clamped = clamp(Math.round(h), 70, maxH);
+    document.documentElement.style.setProperty('--notepad-preview-height', clamped + 'px');
+  };
+
   get([KEYS.notepadText, KEYS.notepadHeight, KEYS.notepadAutoDollar]).then(r => {
     if (typeof r[KEYS.notepadAutoDollar] === 'boolean') {
       autoDollarWrap = r[KEYS.notepadAutoDollar];
@@ -578,11 +758,11 @@ export function init(ac) {
     }
     if (typeof r[KEYS.notepadText] === 'string' && !ta.value) {
       ta.value = r[KEYS.notepadText];
-      renderHybridPreview();
+      renderHybridPreview(true);
       window.__refreshSyntaxHighlight?.();
     }
-    if (typeof r[KEYS.notepadHeight] === 'number' && r[KEYS.notepadHeight] > 60) {
-      document.documentElement.style.setProperty('--notepad-preview-height', r[KEYS.notepadHeight] + 'px');
+    if (typeof r[KEYS.notepadHeight] === 'number') {
+      applySavedNotepadHeight(r[KEYS.notepadHeight]);
     }
   });
 
@@ -602,20 +782,20 @@ export function init(ac) {
 
   const syncCursorMove = rafThrottle(() => {
     const pos = getActiveCursorPos(ta);
-    if (pos === lastCursorPos) return;
+    if (pos === lastCursorPos && ta.value === lastRenderedSrc) return;
     state.notepadUserScrolled = false;
-    renderHybridPreview();
+    updateNotepadCursorTracking(true);
   });
-  on(ta, 'keyup', e => {
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
-      syncCursorMove();
-    }
-  }, false, sig);
+  on(ta, 'keyup', syncCursorMove, false, sig);
   on(ta, 'mouseup', syncCursorMove, false, sig);
+  on(ta, 'click', syncCursorMove, false, sig);
+  on(ta, 'focus', syncCursorMove, false, sig);
+  on(document, 'selectionchange', () => {
+    if (document.activeElement === ta) syncCursorMove();
+  }, false, sig);
 
   on(window, 'pagehide', () => set(KEYS.notepadText, ta.value), false, sig);
 
-  // Wheel: vertical → horizontal (εξίσωση/κώδικας ή wrap) → parent (μία κίνηση ανά notch)
   if (previewWrap) {
     on(previewWrap, 'wheel', e => {
       if (e.ctrlKey || e.metaKey) return;
@@ -643,13 +823,16 @@ export function init(ac) {
     }, { passive: false }, sig);
 
     on(previewWrap, 'scroll', () => {
-      const same = Math.abs(previewWrap.scrollLeft - lastProgWrap.left) < 2 && Math.abs(previewWrap.scrollTop - lastProgWrap.top) < 2;
+      if (progScrolling) return;
+      const same = Math.abs(previewWrap.scrollLeft - lastProgWrap.left) < 2 &&
+                   Math.abs(previewWrap.scrollTop - lastProgWrap.top) < 2;
       if (!same) state.notepadUserScrolled = true;
     }, { passive: true }, sig);
   }
 
   if (previewEl) {
     on(previewEl, 'scroll', e => {
+      if (progScrolling) return;
       const target = e.target;
       if (!target || target === previewEl) return;
       if (target === lastProgMath.el && Math.abs(target.scrollLeft - lastProgMath.left) < 2) return;
@@ -665,7 +848,6 @@ export function init(ac) {
     if (code) wrapInNotepad('', '', code);
   }, false, sig);
 
-  // phpBB Toolbar handlers (mousedown preventDefault διατηρεί την επιλογή κειμένου στο #notepad-input)
   const phpbbToolbar = $('#phpbb-toolbar');
   if (phpbbToolbar) {
     on(phpbbToolbar, 'mousedown', e => {
@@ -733,13 +915,12 @@ export function init(ac) {
       try { ok = document.execCommand('insertText', false, cleanedAll); } catch { }
       if (!ok) ta.value = cleanedAll;
       state.notepadUserScrolled = false;
-      renderHybridPreview();
+      renderHybridPreview(true);
       window.__refreshSyntaxHighlight?.();
       set(KEYS.notepadText, ta.value);
     }
   }, false, sig);
 
-  // Media modal (URL, IMG, GGB)
   const mModal = $('#phpbb-media-modal');
   let mediaMode = 'url';
   if (mModal) {
@@ -770,7 +951,6 @@ export function init(ac) {
     }, false, sig);
   }
 
-  // Safe Clear
   const clearBtn = $('#notepad-clear-btn');
   if (clearBtn) {
     let clearTimer = null;
@@ -793,7 +973,7 @@ export function init(ac) {
       ta.focus(); ta.select();
       try { document.execCommand('insertText', false, ''); } catch { ta.value = ''; }
       state.notepadUserScrolled = false;
-      renderHybridPreview();
+      renderHybridPreview(true);
       window.__refreshSyntaxHighlight?.();
       set(KEYS.notepadText, '');
     }, false, sig);
@@ -807,20 +987,35 @@ export function init(ac) {
     on(rz, 'pointerdown', e => {
       e.preventDefault();
       const bodyEl = $('.notepad-body');
-      start = { y: e.clientY, h: pvOuter.offsetHeight, max: Math.max(90, (bodyEl?.clientHeight || innerHeight) - 85) };
-      rz.classList.add('active'); document.body.classList.add('is-resizing'); rz.setPointerCapture(e.pointerId);
+      start = {
+        y: e.clientY,
+        h: pvOuter.offsetHeight,
+        max: Math.max(90, (bodyEl?.clientHeight || innerHeight) - 85),
+        val: pvOuter.offsetHeight,
+      };
+      rz.classList.add('active');
+      document.body.classList.add('is-resizing');
+      rz.setPointerCapture(e.pointerId);
     }, false, sig);
+
     on(rz, 'pointermove', e => {
       if (!start) return;
-      const v = clamp(start.h + (start.y - e.clientY), 70, start.max);
-      document.documentElement.style.setProperty('--notepad-preview-height', Math.round(v) + 'px');
-      set(KEYS.notepadHeight, Math.round(v));
+      const v = Math.round(clamp(start.h + (start.y - e.clientY), 70, start.max));
+      start.val = v;
+      document.documentElement.style.setProperty('--notepad-preview-height', v + 'px');
+      mirrorSet(KEYS.notepadHeight, v);
     }, false, sig);
+
     const endRz = e => {
-      if (!start) return; start = null;
+      if (!start) return;
+      const finalV = start.val;
+      start = null;
       try { rz.releasePointerCapture(e.pointerId); } catch { }
-      rz.classList.remove('active'); document.body.classList.remove('is-resizing');
+      rz.classList.remove('active');
+      document.body.classList.remove('is-resizing');
+      set(KEYS.notepadHeight, finalV);
     };
-    on(rz, 'pointerup', endRz, false, sig); on(rz, 'pointercancel', endRz, false, sig);
+    on(rz, 'pointerup', endRz, false, sig);
+    on(rz, 'pointercancel', endRz, false, sig);
   }
 }

@@ -25,19 +25,27 @@
             tb.classList.add('hidden');
         }
 
-        const po = document.querySelector('.preview-outer');
-        const rz = document.getElementById('resizer-middle');
-        if (po && rz && localStorage.getItem('latex_preview_hidden') === 'true') {
-            po.classList.add('hidden');
-            rz.classList.add('hidden');
+        if (localStorage.getItem('latex_preview_hidden') === 'true') {
+            const po = document.querySelector('.preview-outer');
+            const rz = document.getElementById('resizer-middle');
+            const npPo = document.getElementById('notepad-preview-outer');
+            const npRz = document.getElementById('notepad-resizer');
+            if (po) po.classList.add('hidden');
+            if (rz) rz.classList.add('hidden');
+            if (npPo) npPo.classList.add('hidden');
+            if (npRz) npRz.classList.add('hidden');
         }
 
         const autoBadges = [
             ['editor-auto-badge', 'latex_editor_font_auto'],
             ['preview-auto-badge', 'latex_preview_zoom_auto'],
-            ['toolbar-auto-badge', 'latex_toolbar_scale_auto']
+            ['toolbar-auto-badge', 'latex_toolbar_scale_auto'],
+            ['notepad-auto-badge', 'latex_notepad_font_auto'],
+            ['notepad-text-auto-badge', 'latex_notepad_font_auto'],
+            ['notepad-preview-auto-badge', 'latex_notepad_preview_auto'],
+            ['notepad-preview-inline-auto-badge', 'latex_notepad_preview_auto']
         ];
-        
+
         for (let i = 0; i < autoBadges.length; i++) {
             const badgeId = autoBadges[i][0];
             const key = autoBadges[i][1];

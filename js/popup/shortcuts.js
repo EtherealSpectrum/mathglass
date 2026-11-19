@@ -173,13 +173,13 @@ function handleShortcutEvent(e, isFromHost = false) {
     case 'KeyS':
       if (!isFromHost) e.preventDefault?.();
       if ($('#settings-toggle')) $('#settings-toggle').click();
-      else toolbar.toggleSettingsFromPanel(8);
+      else toolbar.toggleSettingsFromPanel(typeof e?.settingsLeft === 'number' ? e.settingsLeft : undefined);
       if (!$('#settings-popup')?.classList.contains('active')) scheduleEditorFocus(true);
       return true;
     case 'KeyR':
       if (!isFromHost) e.preventDefault?.();
       if ($('#recent-toggle')) $('#recent-toggle').click();
-      else toolbar.toggleRecentFromPanel(40);
+      else toolbar.toggleRecentFromPanel(typeof e?.recentLeft === 'number' ? e.recentLeft : undefined);
       if (!$('#recent-popup')?.classList.contains('active')) scheduleEditorFocus(true);
       return true;
     case 'KeyM':

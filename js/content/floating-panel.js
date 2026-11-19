@@ -28,7 +28,6 @@
     ? chrome.runtime
     : (typeof browser !== 'undefined' && browser.runtime ? browser.runtime : null);
 
-  // ΔΙΟΡΘΩΣΗ TOGGLE: ΠΡΩΤΑ ελέγχουμε αν υπάρχει ήδη το πάνελ στη σελίδα, ώστε το 2ο κλικ να το κλείνει ΧΩΡΙΣ να χάνεται το κείμενο!
   const existing = document.getElementById(PANEL_ID);
   if (existing) {
     const f = existing.querySelector('iframe');
@@ -351,13 +350,25 @@
     const inPanel = wrapper.contains(ae) || ae === iframe;
     const onBarePage = !minimized && (!ae || ae === document.body || ae === document.documentElement);
     const isMod = e.ctrlKey || e.metaKey;
+    const isPanelAlt = e.altKey && !isMod && !e.shiftKey && /^(Key[NCTOBKPSRMELFX]|Digit4)$/.test(e.code);
     const isPanelCtrl = inPanel && isMod && !e.altKey && (e.key === 'Enter' || /^(Key[BIKU])$/.test(e.code));
     const isPanelEsc = inPanel && e.key === 'Escape';
     if ((inPanel || (onBarePage && isPanelAlt)) && (isPanelAlt || isPanelCtrl || isPanelEsc)) {
       e.preventDefault();
       e.stopPropagation();
       if (e.altKey) suppressHostAltKeyup = true;
-      postToPanel({ type: M_ACTION, action: 'run-shortcut', key: e.key, code: e.code, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey });
+      postToPanel({
+        type: M_ACTION,
+        action: 'run-shortcut',
+        key: e.key,
+        code: e.code,
+        altKey: e.altKey,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        shiftKey: e.shiftKey,
+        settingsLeft: anchorLeftFor(btnSettings),
+        recentLeft: anchorLeftFor(btnRecent),
+      });
       requestAnimationFrame(focusEditorInPanel);
     }
   }, true);
@@ -385,7 +396,6 @@
       wrapper.style.background = c.solidBg;
       wrapper.style.boxShadow = '0 12px 40px rgba(0,0,0,0.45)';
     }
-    // Το θόλωμα ΔΕΝ εφαρμόζεται στο εξωτερικό wrapper (ώστε η μεσαία περιοχή γραφής να παραμένει καθαρή)
     wrapper.style.backdropFilter = 'none';
     wrapper.style.webkitBackdropFilter = 'none';
     handle.style.background = c.solidHandle;
@@ -420,12 +430,23 @@
     btnPreview.setAttribute('aria-label', pvLabel);
   }
 
+  function syncPanelAnchors() {
+    if (minimized) return;
+    postToPanel({
+      type: M_ACTION,
+      action: 'set-panel-anchors',
+      settingsLeft: anchorLeftFor(btnSettings),
+      recentLeft: anchorLeftFor(btnRecent),
+    });
+  }
+
   function syncAllToIframe() {
     postToPanel({ type: M_ACTION, action: 'set-theme', theme });
     postToPanel({ type: M_ACTION, action: 'set-transparency', level: transparency });
     postToPanel({ type: M_ACTION, action: 'set-blur', enabled: blurEnabled });
     postToPanel({ type: M_ACTION, action: 'set-toolbar-hidden', hidden: toolbarHidden });
     postToPanel({ type: M_ACTION, action: 'set-preview-hidden', hidden: previewHidden });
+    syncPanelAnchors();
   }
 
   try {
@@ -756,6 +777,7 @@
     try { resizeHandle.releasePointerCapture(e.pointerId); } catch { }
     iframe.style.pointerEvents = '';
     wrapper.style.transition = 'height .18s ease, box-shadow .18s ease'; persist();
+    syncPanelAnchors();
   };
   add(resizeHandle, 'pointerup', endResize); add(resizeHandle, 'pointercancel', endResize);
 
@@ -763,9 +785,18 @@
     if (fullscreen) {
       wrapper.style.width = document.documentElement.clientWidth + 'px';
       wrapper.style.height = document.documentElement.clientHeight + 'px';
+      syncPanelAnchors();
       return;
     }
     if (minimized) return;
-    clampGeo({ left: wrapper.offsetLeft, top: wrapper.offsetTop, width: wrapper.offsetWidth, height: wrapper.offsetHeight });
+    const clamped = clampGeo({ left: wrapper.offsetLeft, top: wrapper.offsetTop, width: wrapper.offsetWidth, height: wrapper.offsetHeight });
+    Object.assign(wrapper.style, {
+      left: clamped.left + 'px',
+      top: clamped.top + 'px',
+      width: clamped.width + 'px',
+      height: clamped.height + 'px',
+    });
+    savedHeight = clamped.height;
+    syncPanelAnchors();
   });
 })();

@@ -72,7 +72,7 @@ function tokenizeLatex(code) {
   return tokens.join('');
 }
 
-const BBCODE_TAG_RE = /(\[(?:\/?(?:b|i|u|s|quote|code|list|img|url|size|color|ggb|hide|tex|table|tr|th|td)|\*)(?:=[^\]]*)?\])/gi;
+const BBCODE_TAG_RE = /(\[(?:\/?(?:b|i|u|s|quote|code|list|img|url|size|color|center|ggb|hide|tex|latex|table|tr|th|td)|\*)(?:=[^\]]*)?\])/gi;
 
 function highlightBbcodeText(text) {
   return text.split(BBCODE_TAG_RE).map((part, idx) =>
@@ -80,6 +80,19 @@ function highlightBbcodeText(text) {
       ? `<span class="sh-bbtag">${escHtml(part)}</span>`
       : escHtml(part).replace(/\\\$/g, '<span class="sh-comment">\\$</span>')
   ).join('');
+}
+
+function syncScrollbarPadding(ta, pre) {
+  if (!ta || !pre) return;
+  const taCs = getComputedStyle(ta);
+  const preCs = getComputedStyle(pre);
+  const taBorderW = (parseFloat(taCs.borderLeftWidth) || 0) + (parseFloat(taCs.borderRightWidth) || 0);
+  const preBorderW = (parseFloat(preCs.borderLeftWidth) || 0) + (parseFloat(preCs.borderRightWidth) || 0);
+  const taSb = Math.max(0, ta.offsetWidth - ta.clientWidth - taBorderW);
+  const preSb = Math.max(0, pre.offsetWidth - pre.clientWidth - preBorderW);
+  const deltaSb = Math.max(0, taSb - preSb);
+  const basePr = parseFloat(taCs.paddingRight) || 0;
+  pre.style.paddingRight = deltaSb > 0 ? `${basePr + deltaSb}px` : '';
 }
 
 function renderHighlight(ta, pre, mode) {
@@ -92,10 +105,17 @@ function renderHighlight(ta, pre, mode) {
   } else {
     html = tokenizeHybridLatex(val).map(seg => {
       if (seg.type === 'text') return highlightBbcodeText(seg.content);
+      if (seg.type === 'code') {
+        const raw = seg.raw || `[code]${seg.content}[/code]`;
+        const openTag = raw.slice(0, 6);
+        const closeTag = raw.slice(-7);
+        return `<span class="sh-bbtag">${escHtml(openTag)}</span>${escHtml(seg.content)}<span class="sh-bbtag">${escHtml(closeTag)}</span>`;
+      }
       return `<span class="sh-math-bg"><span class="sh-delim">${escHtml(seg.openDelim || '$')}</span>${tokenizeLatex(seg.content)}<span class="sh-delim">${escHtml(seg.closeDelim || '$')}</span></span>`;
     }).join('');
   }
   pre.innerHTML = html + (val.endsWith('\n') ? '\n ' : ' ');
+  syncScrollbarPadding(ta, pre);
   pre.scrollTop = ta.scrollTop;
   pre.scrollLeft = ta.scrollLeft;
 }
@@ -107,6 +127,15 @@ function attachEditor(taId, preId, mode, sig) {
   editors.push({ ta, pre, mode });
   on(ta, 'input', () => renderHighlight(ta, pre, mode), false, sig);
   on(ta, 'scroll', () => { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; }, { passive: true }, sig);
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => {
+      syncScrollbarPadding(ta, pre);
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    });
+    ro.observe(ta);
+    sig.addEventListener('abort', () => ro.disconnect(), { once: true });
+  }
   renderHighlight(ta, pre, mode);
 }
 

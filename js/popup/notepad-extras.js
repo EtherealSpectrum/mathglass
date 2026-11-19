@@ -70,7 +70,7 @@ function insertTemplateSnippet(ta, snippet) {
   try { ok = document.execCommand('insertText', false, text); } catch { }
   if (!ok) ta.setRangeText(text, s, e, 'end');
   state.notepadUserScrolled = false;
-  window.__renderHybridPreview?.();
+  window.__renderHybridPreview?.(true);
   window.__refreshSyntaxHighlight?.();
   set(KEYS.notepadText, ta.value);
   requestAnimationFrame(() => syncHighlightOverlay(ta, $('#notepad-highlight')));
@@ -103,15 +103,6 @@ export function init(ac) {
       if (pre) syncHighlightOverlay(ta, pre);
     };
     on(ta, 'input', sync, false, sig);
-
-    const origRender = window.__renderHybridPreview;
-    if (typeof origRender === 'function') {
-      window.__renderHybridPreview = function (...args) {
-        const res = origRender.apply(this, args);
-        sync();
-        return res;
-      };
-    }
     window.__refreshNotepadCounter = sync;
     sync();
   }
@@ -162,7 +153,7 @@ export function init(ac) {
         : 'Λειτουργία Ανάγνωσης — Πλήρης οθόνη ζωντανής προεπισκόπησης (Alt+F)';
     }
     if (target) {
-      window.__renderHybridPreview?.();
+      window.__renderHybridPreview?.(true);
     } else {
       window.__focusActiveEditor?.();
     }

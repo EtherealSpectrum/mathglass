@@ -37,7 +37,7 @@ export function applyTheme(theme, shouldPersist = true) {
   const t = theme === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', t);
   window.__renderPreview?.();
-  window.__renderHybridPreview?.();
+  window.__renderHybridPreview?.(true);
   if (shouldPersist) persist(KEYS.theme, t);
   else mirrorSet(KEYS.theme, t);
 }
@@ -104,6 +104,12 @@ export function applyPreviewHidden(hidden, shouldPersist = true) {
   if (npTarget) npTarget.classList.toggle('hidden', h);
   if (npRz) npRz.classList.toggle('hidden', h);
   if (btn) { btn.classList.toggle('active', h); btn.title = (h ? 'Εμφάνιση ζωντανής προεπισκόπησης' : 'Απόκρυψη ζωντανής προεπισκόπησης') + ' (Alt+P)'; }
+  if (!h) {
+    requestAnimationFrame(() => {
+      window.__renderPreview?.();
+      window.__renderHybridPreview?.(true);
+    });
+  }
   if (shouldPersist) persist(KEYS.previewHidden, h);
   else mirrorSet(KEYS.previewHidden, h);
 }
@@ -189,6 +195,7 @@ export function setSize(kind, value, isAuto) {
   state[`${prop}Auto`] = isAuto;
   if (!changed) return;
   applyVisuals();
+  if (kind === 'preview') window.__syncPreviewCursor?.();
   persist(SCALE_KEY[kind].auto, isAuto);
   if (!isAuto) persist(SCALE_KEY[kind].scale, v);
 }

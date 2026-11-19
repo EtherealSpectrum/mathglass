@@ -3,6 +3,9 @@ import { $, on, clamp } from '../core/dom.js';
 import { state } from './settings.js';
 
 let openPanelId = null, hoverTimer = null, anchor = null;
+let lastRecentAnchor = null;
+let lastSettingsAnchor = null;
+let panelAnchors = { settingsLeft: null, recentLeft: null };
 
 const DATASETS = {
   codecogs_alike: () => window.TOOLBARS_CODECOGS_ALIKE || [],
@@ -20,6 +23,29 @@ function notifyPopupState() {
       notepadOpen: document.body.classList.contains('notepad-open'),
     }, '*');
   } catch {}
+}
+
+export function setPanelAnchors(anchors) {
+  if (!anchors || typeof anchors !== 'object') return;
+  if (typeof anchors.settingsLeft === 'number') {
+    panelAnchors.settingsLeft = anchors.settingsLeft;
+    lastSettingsAnchor = { left: anchors.settingsLeft };
+  }
+  if (typeof anchors.recentLeft === 'number') {
+    panelAnchors.recentLeft = anchors.recentLeft;
+    lastRecentAnchor = { left: anchors.recentLeft };
+  }
+}
+
+function resolveAnchor(preferred, fallbackSaved, toggleEl, defaultLeft) {
+  if (preferred) {
+    if (typeof preferred.left === 'number' || preferred.isConnected) return preferred;
+  }
+  if (fallbackSaved) {
+    if (typeof fallbackSaved.left === 'number' || fallbackSaved.isConnected) return fallbackSaved;
+  }
+  if (toggleEl && toggleEl.isConnected) return toggleEl;
+  return { left: defaultLeft };
 }
 
 export function build() {
@@ -54,7 +80,11 @@ export function build() {
 
 function position(popup, anchorOrPos) {
   if (!popup || !anchorOrPos) return;
-  popup.classList.add('active'); popup.style.maxHeight = '';
+  popup.classList.add('active');
+  popup.style.maxHeight = '';
+  popup.style.right = 'auto';
+  popup.style.left = '8px';
+  popup.style.top = '6px';
   const pr = popup.getBoundingClientRect();
 
   if (typeof anchorOrPos.left === 'number' && !anchorOrPos.getBoundingClientRect) {
@@ -79,15 +109,16 @@ function makeCell(item, click) {
   c.type = 'button'; c.className = 'cc-cell'; if (item.title) c.title = item.action === 'matrix-builder' && !item.title.includes('Alt+M') ? `${item.title} (Alt+M)` : item.title;
   if (item.render) { try { katex.render(item.render, c, { throwOnError: false }); } catch { c.textContent = item.label || '?'; } }
   else { c.textContent = item.label || '?'; if (!item.label) c.classList.add('cc-cell-text'); }
+  c.addEventListener('mousedown', e => e.preventDefault());
   if (click) c.addEventListener('click', e => { e.stopPropagation(); handle(item); });
   return c;
 }
 
 function handle(item) {
-  if (item.action === 'matrix-builder') { window.__openMatrixBuilder(item.matrixType || 'matrix'); closePopup(); return; }
+  if (item.action === 'matrix-builder') { window.__openMatrixBuilder(item.matrixType || 'matrix'); closeAllPopups(); return; }
   window.__insertSnippet(item.before || '', item.after || '');
   addToRecent(item); closePopup();
-  if ($('#recent-popup')?.classList.contains('active')) openRecent();
+  if ($('#recent-popup')?.classList.contains('active')) openRecent(lastRecentAnchor);
 }
 
 function createPanel(group) {
@@ -136,18 +167,35 @@ function addToRecent(item) {
 
 export function openRecent(anchorOrPos) {
   const popup = $('#recent-popup'); if (!popup) return;
+  closePopup();
+
+  const resolvedAnchor = resolveAnchor(
+    anchorOrPos,
+    lastRecentAnchor,
+    $('#recent-toggle'),
+    typeof panelAnchors.recentLeft === 'number' ? panelAnchors.recentLeft : 40
+  );
+  lastRecentAnchor = resolvedAnchor;
+
   popup.innerHTML = '';
   const header = document.createElement('div');
   header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:4px 6px;margin-bottom:6px;border-bottom:1px solid var(--line);font-size:11px;font-weight:600;color:var(--ink-soft)';
   header.innerHTML = '<span>Πρόσφατα</span>';
   if (state.recent.length) {
     const clr = document.createElement('button');
+    clr.type = 'button';
     clr.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     clr.title = 'Καθαρισμός ιστορικού';
     clr.style.cssText = 'background:none;border:none;color:var(--ink-soft);cursor:pointer;padding:0;display:flex';
     on(clr, 'mouseenter', () => clr.style.color = '#f28b82');
     on(clr, 'mouseleave', () => clr.style.color = 'var(--ink-soft)');
-    on(clr, 'click', e => { e.stopPropagation(); state.recent = []; import('../core/storage.js').then(m => m.set('latex_recent_symbols', [])); openRecent(anchorOrPos); });
+    on(clr, 'mousedown', e => e.preventDefault());
+    on(clr, 'click', e => {
+      e.stopPropagation();
+      state.recent = [];
+      import('../core/storage.js').then(m => m.set('latex_recent_symbols', []));
+      openRecent(resolvedAnchor);
+    });
     header.appendChild(clr);
   }
   popup.appendChild(header);
@@ -162,9 +210,7 @@ export function openRecent(anchorOrPos) {
     state.recent.forEach(it => grid.appendChild(makeCell(it, true)));
     popup.appendChild(grid);
   }
-  position(popup, anchorOrPos || $('#recent-toggle') || { left: 8 });
-  popup.onmouseenter = () => clearTimeout(hoverTimer);
-  popup.onmouseleave = scheduleClose;
+  position(popup, resolvedAnchor);
   notifyPopupState();
 }
 
@@ -179,11 +225,23 @@ export function toggleSettingsFromPanel(anchorLeft) {
   const sp = $('#settings-popup');
   const rp = $('#recent-popup');
   if (!sp) return;
+  closePopup();
   rp?.classList.remove('active');
+  if (typeof anchorLeft === 'number') {
+    panelAnchors.settingsLeft = anchorLeft;
+    lastSettingsAnchor = { left: anchorLeft };
+  }
   if (sp.classList.contains('active')) {
     sp.classList.remove('active');
   } else {
-    position(sp, { left: typeof anchorLeft === 'number' ? anchorLeft : 8 });
+    const resolved = resolveAnchor(
+      typeof anchorLeft === 'number' ? { left: anchorLeft } : null,
+      lastSettingsAnchor,
+      $('#settings-toggle'),
+      typeof panelAnchors.settingsLeft === 'number' ? panelAnchors.settingsLeft : 8
+    );
+    lastSettingsAnchor = resolved;
+    position(sp, resolved);
   }
   notifyPopupState();
 }
@@ -192,12 +250,23 @@ export function toggleRecentFromPanel(anchorLeft) {
   const sp = $('#settings-popup');
   const rp = $('#recent-popup');
   if (!rp) return;
+  closePopup();
   sp?.classList.remove('active');
+  if (typeof anchorLeft === 'number') {
+    panelAnchors.recentLeft = anchorLeft;
+    lastRecentAnchor = { left: anchorLeft };
+  }
   if (rp.classList.contains('active')) {
     rp.classList.remove('active');
     notifyPopupState();
   } else {
-    openRecent({ left: typeof anchorLeft === 'number' ? anchorLeft : 8 });
+    const resolved = resolveAnchor(
+      typeof anchorLeft === 'number' ? { left: anchorLeft } : null,
+      lastRecentAnchor,
+      $('#recent-toggle'),
+      typeof panelAnchors.recentLeft === 'number' ? panelAnchors.recentLeft : 40
+    );
+    openRecent(resolved);
   }
 }
 
@@ -223,10 +292,14 @@ export function bind(ac) {
   if (settingsBtn) {
     on(settingsBtn, 'click', e => {
       e.stopPropagation();
+      closePopup();
       $('#recent-popup')?.classList.remove('active');
       const p = $('#settings-popup');
       if (p.classList.contains('active')) p.classList.remove('active');
-      else position(p, settingsBtn);
+      else {
+        lastSettingsAnchor = settingsBtn;
+        position(p, settingsBtn);
+      }
       notifyPopupState();
     }, false, sig);
   }

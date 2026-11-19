@@ -20,6 +20,15 @@ export function init(ac) {
     scheduleDraftSave();
   }, false, sig);
 
+  const syncCursor = rafThrottle(() => window.__syncPreviewCursor?.());
+  on(state.ta, 'keyup', syncCursor, false, sig);
+  on(state.ta, 'mouseup', syncCursor, false, sig);
+  on(state.ta, 'click', syncCursor, false, sig);
+  on(state.ta, 'focus', syncCursor, false, sig);
+  on(document, 'selectionchange', () => {
+    if (document.activeElement === state.ta) syncCursor();
+  }, false, sig);
+
   on(state.ta, 'keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); document.getElementById('insert-btn').click(); }
   }, false, sig);
@@ -54,7 +63,7 @@ export function insertSnippet(before, after) {
 
   if (npTa) {
     state.notepadUserScrolled = false;
-    window.__renderHybridPreview?.();
+    window.__renderHybridPreview?.(true);
     window.__refreshSyntaxHighlight?.();
     set(KEYS.notepadText, target.value);
   } else {

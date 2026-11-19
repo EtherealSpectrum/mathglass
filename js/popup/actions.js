@@ -169,7 +169,7 @@ export async function runExport(mode, format, btn) {
     } else if (format === 'bbcode-tex' || format === 'bbcode') {
       const tag = format === 'bbcode-tex' ? 'tex' : 'latex';
       const bb = mode === 'editor' ? `[${tag}]${trimmed}[/${tag}]`
-        : tokenizeHybridLatex(raw).map(tok => tok.type === 'text' ? tok.content : `[${tag}]${tok.content.trim()}[/${tag}]`).join('');
+        : tokenizeHybridLatex(raw).map(tok => tok.type === 'math' ? `[${tag}]${tok.content.trim()}[/${tag}]` : (tok.raw ?? tok.content)).join('');
       await copyText(bb, btn);
     } else if (format === 'mathml' && mode === 'editor') {
       const mml = katex.renderToString(trimmed, { throwOnError: true, displayMode: true, output: 'mathml' });
