@@ -1,0 +1,246 @@
+/* =========================================================
+   Ισορροπημένη προτροπή φόρμας (placeholder) Σημειωματάριου
+   σε υψηλή διαφάνεια (85%–100%) — css/style.css
+   Ίδιας έντασης με το .np-placeholder, πιο απαλή από το κείμενο
+   ========================================================= */
+
+#notepad-highlight-wrap #notepad-input::placeholder {
+  opacity: 1;
+  font-weight: 400;
+  transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+
+/* Σκούρο θέμα + διαφάνεια: απαλό γκρι (--ink-soft) που μένει ευκρινές χωρίς να γίνεται πιο έντονο από το κείμενο */
+:root[data-theme="dark"][data-transparent="true"] #notepad-highlight-wrap #notepad-input::placeholder {
+  color: rgba(158, 165, 180, calc(0.62 + (1 - var(--panel-alpha, 1)) * 0.14));
+  -webkit-text-fill-color: rgba(158, 165, 180, calc(0.62 + (1 - var(--panel-alpha, 1)) * 0.14));
+  font-weight: 400;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, calc(0.35 + (1 - var(--panel-alpha, 1)) * 0.35));
+}
+
+/* Ανοιχτό θέμα + διαφάνεια */
+:root[data-theme="light"][data-transparent="true"] #notepad-highlight-wrap #notepad-input::placeholder {
+  color: rgba(68, 74, 86, calc(0.62 + (1 - var(--panel-alpha, 1)) * 0.14));
+  -webkit-text-fill-color: rgba(68, 74, 86, calc(0.62 + (1 - var(--panel-alpha, 1)) * 0.14));
+  font-weight: 400;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, calc(0.45 + (1 - var(--panel-alpha, 1)) * 0.35));
+}
+
+/* Πολύ ελαφρύ πέπλο (έως 14%–16%) ΜΟΝΟ όσο η φόρμα είναι άδεια και η διαφάνεια > 82%.
+   Εξαφανίζεται μόλις αρχίσετε να πληκτρολογείτε. */
+:root[data-theme="dark"][data-transparent="true"] #notepad-highlight-wrap #notepad-input:placeholder-shown {
+  background-color: rgba(15, 17, 23, clamp(0, calc((0.18 - var(--panel-alpha, 1)) * 0.78), 0.14));
+}
+
+:root[data-theme="light"][data-transparent="true"] #notepad-highlight-wrap #notepad-input:placeholder-shown {
+  background-color: rgba(240, 242, 246, clamp(0, calc((0.18 - var(--panel-alpha, 1)) * 0.90), 0.16));
+}
+
+/* =========================================================
+   Πρότυπα (Templates) & Μετρητής Λέξεων / Χαρακτήρων
+   ========================================================= */
+.notepad-templates-bar {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bar-bg);
+}
+
+.notepad-templates-bar.active {
+  display: flex;
+}
+
+.notepad-templates-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-right: 2px;
+}
+
+.notepad-tpl-chip {
+  border: 1px solid var(--line);
+  background: var(--btn-bg);
+  color: var(--ink);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-family: var(--sans);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.notepad-tpl-chip:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft, rgba(139, 123, 255, 0.16));
+}
+
+#notepad-highlight-wrap #notepad-highlight,
+#notepad-highlight-wrap #notepad-input {
+  padding-bottom: 28px !important;
+  box-sizing: border-box !important;
+}
+
+#notepad-highlight-wrap #notepad-highlight span {
+  display: inline !important;
+  line-height: inherit !important;
+  font-size: inherit !important;
+  font-family: inherit !important;
+  font-weight: inherit !important;
+  font-style: inherit !important;
+  letter-spacing: inherit !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-width: 0 !important;
+  vertical-align: baseline !important;
+}
+
+.notepad-counter {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  z-index: 4;
+  pointer-events: none;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  padding: 2px 7px;
+  border-radius: 5px;
+  color: var(--ink-soft);
+  background: var(--bar-bg);
+  border: 1px solid var(--line);
+  opacity: 0.9;
+}
+
+
+/* =========================================================
+   Λειτουργία Ανάγνωσης — Πλήρης Οθόνη Ζωντανής Προεπισκόπησης
+   ========================================================= */
+.notepad-reader-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  background: var(--btn-bg);
+  color: var(--ink);
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 4px;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.notepad-reader-btn:hover,
+.notepad-reader-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+body.notepad-reader-mode #toolbars-container,
+body.notepad-reader-mode>main,
+body.notepad-reader-mode>footer,
+body.notepad-reader-mode .notepad-bar,
+body.notepad-reader-mode .phpbb-toolbar,
+body.notepad-reader-mode .notepad-templates-bar,
+body.notepad-reader-mode #notepad-highlight-wrap,
+body.notepad-reader-mode #notepad-resizer,
+body.notepad-reader-mode .notepad-footer {
+  display: none !important;
+}
+
+body.notepad-reader-mode #notepad-view {
+  display: flex !important;
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 9998 !important;
+}
+
+body.notepad-reader-mode .notepad-body {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+}
+
+body.notepad-reader-mode #notepad-preview-outer {
+  display: flex !important;
+  flex-direction: column !important;
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  z-index: 9999 !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+:root[data-transparent="true"]:has(body.notepad-reader-mode),
+:root[data-transparent="true"] body.notepad-reader-mode,
+:root[data-transparent="true"] body.notepad-reader-mode #notepad-view,
+:root[data-transparent="true"] body.notepad-reader-mode .notepad-body,
+:root[data-transparent="true"] body.notepad-reader-mode #notepad-preview-outer,
+:root[data-transparent="true"] body.notepad-reader-mode #notepad-preview-wrap,
+:root[data-transparent="true"] body.notepad-reader-mode #notepad-preview {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+:root[data-transparent="true"] body.notepad-reader-mode #notepad-preview-outer {
+  color: var(--ink) !important;
+}
+
+:root[data-transparent="true"][data-blur="true"] body.notepad-reader-mode #notepad-preview-outer {
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+}
+
+:root[data-transparent="true"][data-blur="false"] body.notepad-reader-mode #notepad-preview-outer {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+:root[data-transparent="false"][data-theme="dark"] body.notepad-reader-mode #notepad-preview-outer {
+  background: #0f1219 !important;
+  color: #e8ecf4 !important;
+}
+
+:root[data-transparent="false"][data-theme="light"] body.notepad-reader-mode #notepad-preview-outer {
+  background: #faf8f4 !important;
+  color: #181a1f !important;
+}
+
+:root[data-transparent="true"][data-theme="dark"] body.notepad-reader-mode .notepad-preview-header {
+  background: rgba(24, 27, 34, calc(0.15 + var(--panel-alpha, 1) * 0.65)) !important;
+}
+
+:root[data-transparent="true"][data-theme="light"] body.notepad-reader-mode .notepad-preview-header {
+  background: rgba(226, 228, 232, calc(0.18 + var(--panel-alpha, 1) * 0.65)) !important;
+}
+
+body.notepad-reader-mode .notepad-preview-header {
+  padding: 10px 20px !important;
+  border-bottom: 1px solid var(--line) !important;
+}
+
+body.notepad-reader-mode #notepad-preview-wrap {
+  flex: 1 1 auto !important;
+  overflow-y: auto !important;
+  padding: 28px 24px 56px !important;
+}
+
+body.notepad-reader-mode #notepad-preview {
+  max-width: 780px !important;
+  margin: 0 auto !important;
+  line-height: 1.75 !important;
+  color: var(--ink) !important;
+}

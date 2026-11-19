@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="el" data-theme="dark" data-blur="true" style="color-scheme: normal;">
+
+<head>
+    <meta charset="UTF-8">
+    <title>MathGlass — Επεξεργαστής LaTeX &amp; phpBB</title>
+    <script src="js/pre-init.js"></script>
+    <link rel="stylesheet" href="lib/katex/katex.min.css">
+    <script src="lib/katex/katex.min.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/notepad-placeholder-fix.css">
+    <script src="lib/html2canvas.min.js"></script>
+    <script src="lib/jspdf.umd.min.js"></script>
+</head>
+
+<body>
+    <div class="toolbars-container" id="toolbars-container">
+        <div class="toolbar-row" id="toolbar-row-1"></div>
+        <div class="toolbar-row" id="toolbar-row-2"></div>
+    </div>
+    <main>
+        <div class="highlight-wrap" id="latex-highlight-wrap">
+            <pre class="highlight-layer" id="latex-highlight" aria-hidden="true"></pre>
+            <textarea id="latex-input" spellcheck="false">x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}</textarea>
+        </div>
+        <div class="resizer" id="resizer-middle" title="Σύρετε για αλλαγή ύψους προεπισκόπησης"></div>
+        <div class="preview-outer">
+            <div class="preview-controls">
+                <button class="auto-badge active" id="preview-auto-badge" type="button" aria-pressed="true"
+                    title="Αυτόματο μέγεθος">AUTO</button>
+                <button id="preview-inline-btn" type="button" title="Αριστερή στοίχιση" aria-pressed="false">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M2 2v10M5 7h7M9 4l3 3-3 3" />
+                    </svg>
+                </button>
+                <button id="zoom-out" title="Σμίκρυνση">−</button>
+                <input type="number" id="zoom-label" min="50" max="300" step="1" value="100"
+                    title="Μέγεθος γραμματοσειράς (%)">
+                <button id="zoom-in" title="Μεγέθυνση">+</button>
+            </div>
+            <div class="preview-wrap" id="preview-wrap">
+                <div id="preview"></div>
+            </div>
+        </div>
+    </main>
+    <footer>
+        <div class="toggle-group" id="toggle-group">
+            <div class="toggle-container">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="tex-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+                <label class="toggle-label" for="tex-toggle">Περιτύλιξη $</label>
+            </div>
+            <div class="toggle-container">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="inline-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+                <label class="toggle-label" for="inline-toggle">Στοίχιση (\textstyle)</label>
+            </div>
+            <div class="toggle-container">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="displaystyle-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+                <label class="toggle-label" for="displaystyle-toggle">Μεγάλα (\displaystyle)</label>
+            </div>
+        </div>
+        <div class="actions">
+            <button class="action ghost btn-settings" id="settings-btn" type="button"
+                title="Απόκρυψη/Εμφάνιση ρυθμίσεων">
+                <svg class="chevron" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </button>
+            <button class="action ghost" id="copy-btn" type="button"
+                title="Αντιγραφή εξίσωσης στο πρόχειρο (Alt+C)">Αντιγραφή</button>
+            <div class="export-dropdown">
+                <button class="action ghost export-more-trigger" id="export-more-btn" type="button"
+                    title="Επιλογές εξαγωγής">Εξαγωγή ▾</button>
+                <div class="export-menu" id="export-more-menu">
+                    <button type="button" data-export-fmt="png">Εικόνα PNG (.png)</button>
+                    <button type="button" data-export-fmt="png-transparent">PNG (Διαφανές φόντο)</button>
+                    <button type="button" data-export-fmt="pdf">Έγγραφο PDF (.pdf)</button>
+                    <button type="button" data-export-fmt="svg">Διανυσματικό SVG (.svg)</button>
+                    <button type="button" data-export-fmt="tex">Πηγαίο LaTeX (.tex)</button>
+                    <button type="button" data-export-fmt="html">Ιστοσελίδα HTML (.html)</button>
+                    <button type="button" data-export-fmt="md">Markdown (.md)</button>
+                    <div class="export-menu-divider" role="separator"></div>
+                    <button type="button" data-export-fmt="mathml">Αντιγραφή MathML (MS Word)</button>
+                    <button type="button" data-export-fmt="bbcode">Αντιγραφή BBCode ([latex])</button>
+                </div>
+            </div>
+            <button class="action primary" id="insert-btn" type="button"
+                title="Εισαγωγή εξίσωσης στη σελίδα (Ctrl+Enter)">Εισαγωγή<span class="hide-sm">&nbsp;στη
+                    σελίδα</span></button>
+        </div>
+    </footer>
+
+    <!-- Σημειωματάριο phpBB (mathematica.gr + KaTeX) -->
+    <section class="notepad-view" id="notepad-view" aria-label="Σημειωματάριο phpBB">
+        <div class="notepad-bar">
+            <span class="notepad-title">Σημειωματάριο phpBB</span>
+            <div class="notepad-bar-actions">
+                <div class="notepad-scale-control" role="group" aria-label="Μέγεθος κειμένου σημειωματάριου">
+                    <button class="auto-badge active" id="notepad-text-auto-badge" type="button" aria-pressed="true"
+                        title="Αυτόματη κλιμάκωση κειμένου σημειωματάριου">AUTO</button>
+                    <button id="notepad-text-zoom-out" type="button" title="Μικρότερο κείμενο">Aa−</button>
+                    <input type="number" id="notepad-text-zoom-label" min="75" max="220" step="1" value="100"
+                        title="Μέγεθος κειμένου σημειωματάριου (%)">
+                    <button id="notepad-text-zoom-in" type="button" title="Μεγαλύτερο κείμενο">Aa+</button>
+                </div>
+                <button class="notepad-btn accent" id="notepad-auto-dollar-btn" type="button" aria-pressed="true"
+                    title="Αυτόματο $...$: ΕΝΕΡΓΟ — Όταν ο κέρσορας είναι εκτός εξίσωσης ($...$, $$...$$, [tex]...[/tex]), τα σύμβολα της εργαλειοθήκης KaTeX περιβάλλονται αυτόματα με $...$">$
+                    Auto</button>
+                <button class="notepad-btn active" id="notepad-templates-btn" type="button" aria-pressed="true"
+                    title="Εμφάνιση/Απόκρυψη έτοιμων προτύπων phpBB & KaTeX (Alt+L)">Πρότυπα ▾</button>
+                <button class="notepad-btn accent" id="notepad-pull-btn" type="button"
+                    title="Επικόλληση της τρέχουσας εξίσωσης από τον Editor (Alt+E)">+ Από Editor</button>
+            </div>
+        </div>
+
+        <!-- Εργαλειοθήκη Μορφοποίησης phpBB (mathematica.gr) -->
+        <div class="phpbb-toolbar" id="phpbb-toolbar">
+            <div class="phpbb-dropdown-wrap">
+                <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-headings-btn"
+                    title="Επικεφαλίδες H1–H7 ([size][b])">H1–H7 ▾</button>
+                <div class="phpbb-dropdown-menu" id="phpbb-headings-menu">
+                    <button type="button" data-phpbb-h="200">H1 (200%)</button>
+                    <button type="button" data-phpbb-h="175">H2 (175%)</button>
+                    <button type="button" data-phpbb-h="150">H3 (150%)</button>
+                    <button type="button" data-phpbb-h="135">H4 (135%)</button>
+                    <button type="button" data-phpbb-h="120">H5 (120%)</button>
+                    <button type="button" data-phpbb-h="110">H6 (110%)</button>
+                    <button type="button" data-phpbb-h="100">H7 (100%)</button>
+                </div>
+            </div>
+            <span class="phpbb-sep"></span>
+            <button type="button" class="phpbb-tb-btn" data-bb-wrap="[b]|[/b]|έντονο"
+                title="Έντονα ([b]...[/b]) (Ctrl+B)"><b>B</b></button>
+            <button type="button" class="phpbb-tb-btn" data-bb-wrap="[i]|[/i]|πλάγιο"
+                title="Πλάγια ([i]...[/i]) (Ctrl+I)"><i>I</i></button>
+            <button type="button" class="phpbb-tb-btn" data-bb-wrap="[u]|[/u]|υπογράμμιση"
+                title="Υπογράμμιση ([u]...[/u]) (Ctrl+U)"><u>U</u></button>
+            <button type="button" class="phpbb-tb-btn" data-bb-wrap="[s]|[/s]|διαγραφή"
+                title="Διακριτή Διαγραφή ([s]...[/s])"><s>S</s></button>
+            <div class="phpbb-dropdown-wrap">
+                <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-size-btn"
+                    title="Μέγεθος ([size=100])">size ▾</button>
+                <div class="phpbb-dropdown-menu" id="phpbb-size-menu">
+                    <button type="button" data-phpbb-size="85">[size=85]</button>
+                    <button type="button" data-phpbb-size="100">[size=100]</button>
+                    <button type="button" data-phpbb-size="120">[size=120]</button>
+                    <button type="button" data-phpbb-size="150">[size=150]</button>
+                    <button type="button" data-phpbb-size="200">[size=200]</button>
+                </div>
+            </div>
+            <span class="phpbb-sep"></span>
+            <button type="button" class="phpbb-tb-btn" id="phpbb-list-ul"
+                title="Λίστα με κουκκίδες ([list][*]...[/list])">•≡</button>
+            <button type="button" class="phpbb-tb-btn" id="phpbb-list-ol"
+                title="Αριθμημένη λίστα ([list=1][*]...[/list])">1.</button>
+            <button type="button" class="phpbb-tb-btn phpbb-tb-mono" data-bb-wrap="[*] ||στοιχείο"
+                title="Στοιχείο λίστας ([*])">[*]</button>
+            <span class="phpbb-sep"></span>
+            <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-url-btn"
+                title="Σύνδεσμος ([url]) (Ctrl+K)">URL</button>
+            <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-img-btn"
+                title="Εικόνα ([img])">IMG</button>
+            <span class="phpbb-sep"></span>
+            <button type="button" class="phpbb-tb-btn phpbb-tb-wide" data-bb-wrap="[quote]|[/quote]|Παράθεση..."
+                title="Παράθεση ([quote])">Quote</button>
+            <button type="button" class="phpbb-tb-btn phpbb-tb-wide" data-bb-wrap="[code]|[/code]|κώδικας"
+                title="Κώδικας ([code])">Code</button>
+            <button type="button" class="phpbb-tb-btn phpbb-tb-accent" data-bb-wrap="[tex]|[/tex]|x^2+y^2=r^2"
+                title="Εξίσωση phpBB ([tex]) (Alt+X)">[tex]</button>
+            <button type="button" class="phpbb-tb-btn phpbb-tb-mono" id="phpbb-ggb-btn"
+                title="GeoGebra ([ggb])">[ggb]</button>
+            <button type="button" class="phpbb-tb-btn phpbb-tb-mono" data-bb-wrap="[hide]|[/hide]|Κρυφή λύση..."
+                title="Απόκρυψη / Spoiler ([hide])">[hide]</button>
+            <span class="phpbb-sep"></span>
+            <button type="button" class="phpbb-tb-btn phpbb-tb-wide phpbb-tb-danger" id="phpbb-clear-fmt-btn"
+                title="Απαλοιφή μορφοποίησης (αφαιρεί BBCode)">Απαλοιφή</button>
+        </div>
+
+        <!-- Ορατή μπάρα Προτύπων (Templates) -->
+        <div class="notepad-templates-bar active" id="notepad-templates-bar"></div>
+
+
+
+        <div class="notepad-body">
+            <div class="highlight-wrap" id="notepad-highlight-wrap">
+                <pre class="highlight-layer notepad-font" id="notepad-highlight" aria-hidden="true"></pre>
+                <textarea id="notepad-input" spellcheck="true"
+                    placeholder="Γράψτε πεζό κείμενο phpBB ([b], [list], [quote], [hide], [ggb]) και εξισώσεις με [tex]...[/tex], $...$ ή $$...$$…"></textarea>
+                <div class="notepad-counter" id="notepad-counter" aria-live="polite">0 λέξεις · 0 χαρακτήρες</div>
+            </div>
+            <div class="resizer" id="notepad-resizer" title="Σύρετε για αλλαγή ύψους προεπισκόπησης"></div>
+            <div class="notepad-preview-outer" id="notepad-preview-outer">
+                <div class="notepad-preview-header">
+                    <span class="notepad-preview-label">Ζωντανή προεπισκόπηση (phpBB + KaTeX)</span>
+                    <div class="notepad-scale-control" role="group" aria-label="Μέγεθος προεπισκόπησης σημειωματάριου">
+                        <button class="auto-badge active" id="notepad-preview-inline-auto-badge" type="button"
+                            aria-pressed="true" title="Αυτόματη κλιμάκωση προεπισκόπησης">AUTO</button>
+                        <button id="notepad-preview-inline-zoom-out" type="button"
+                            title="Μικρότερη προεπισκόπηση">Aa−</button>
+                        <input type="number" id="notepad-preview-inline-zoom-label" min="65" max="240" step="1"
+                            value="100" title="Μέγεθος προεπισκόπησης (%)">
+                        <button id="notepad-preview-inline-zoom-in" type="button"
+                            title="Μεγαλύτερη προεπισκόπηση">Aa+</button>
+                        <button type="button" class="notepad-reader-btn" id="notepad-reader-btn" aria-pressed="false"
+                            title="Λειτουργία Ανάγνωσης — Πλήρης οθόνη ζωντανής προεπισκόπησης (Alt+F)">📖
+                            Ανάγνωση</button>
+                    </div>
+                </div>
+                <div class="notepad-preview-wrap" id="notepad-preview-wrap">
+                    <div id="notepad-preview" class="phpbb-preview-body"></div>
+                </div>
+            </div>
+        </div>
+        <div class="notepad-footer">
+            <button class="notepad-clear-safe" id="notepad-clear-btn" type="button"
+                title="Εκκαθάριση σημειωματάριου">Εκκαθάριση</button>
+            <button class="action ghost" id="notepad-copy-btn" type="button"
+                title="Αντιγραφή κειμένου σημειωματάριου (Alt+C)">Αντιγραφή</button>
+            <div class="export-dropdown">
+                <button class="action ghost export-more-trigger" id="notepad-export-btn" type="button"
+                    title="Επιλογές εξαγωγής σημειωματάριου">Εξαγωγή ▾</button>
+                <div class="export-menu" id="notepad-export-menu">
+                    <button type="button" data-export-fmt="png">Εικόνα PNG (.png)</button>
+                    <button type="button" data-export-fmt="png-transparent">PNG (Διαφανές φόντο)</button>
+                    <button type="button" data-export-fmt="pdf">Έγγραφο PDF (.pdf)</button>
+                    <button type="button" data-export-fmt="svg">Διανυσματικό SVG (.svg)</button>
+                    <button type="button" data-export-fmt="tex">Πηγαίο LaTeX (.tex)</button>
+                    <button type="button" data-export-fmt="html">Ιστοσελίδα HTML (.html)</button>
+                    <button type="button" data-export-fmt="md">Markdown (.md)</button>
+                    <div class="export-menu-divider" role="separator"></div>
+                    <button type="button" data-export-fmt="bbcode-tex">Αντιγραφή BBCode ([tex])</button>
+                    <button type="button" data-export-fmt="bbcode">Αντιγραφή BBCode ([latex])</button>
+                </div>
+            </div>
+            <button class="action primary" id="notepad-insert-btn" type="button"
+                title="Εισαγωγή κειμένου σημειωματάριου στη σελίδα (Ctrl+Enter)">Εισαγωγή<span class="hide-sm">&nbsp;στη
+                    σελίδα</span></button>
+        </div>
+    </section>
+
+    <div class="error-toast" id="error-toast" role="alert"></div>
+
+    <!-- Ρυθμίσεις -->
+    <div class="panel-popup" id="settings-popup">
+        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft);">Σετ Εργαλειοθήκης</div>
+        <select id="toolbar-dataset-select"
+            style="padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink); font-family: var(--sans); font-size: 13px; margin-bottom: 4px;">
+            <option value="codecogs_alike">Πλήρες Σετ</option>
+            <option value="basic">Βασικά Μαθηματικά</option>
+            <option value="science">Επιστήμες / Μηχανική</option>
+        </select>
+        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft);">Κείμενο Editor</div>
+        <div class="editor-size-control" role="group">
+            <button class="auto-badge active" id="editor-auto-badge" type="button" aria-pressed="true">AUTO</button>
+            <button id="editor-zoom-out" type="button">Aa−</button>
+            <input type="number" id="editor-zoom-label" min="70" max="200" step="1" value="100">
+            <button id="editor-zoom-in" type="button">Aa+</button>
+        </div>
+        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Κείμενο Σημειωματάριου
+        </div>
+        <div class="editor-size-control" role="group">
+            <button class="auto-badge active" id="notepad-auto-badge" type="button" aria-pressed="true">AUTO</button>
+            <button id="notepad-zoom-out" type="button">Aa−</button>
+            <input type="number" id="notepad-zoom-label" min="75" max="220" step="1" value="100">
+            <button id="notepad-zoom-in" type="button">Aa+</button>
+        </div>
+        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Προεπισκόπηση
+            Σημειωματάριου</div>
+        <div class="editor-size-control" role="group">
+            <button class="auto-badge active" id="notepad-preview-auto-badge" type="button"
+                aria-pressed="true">AUTO</button>
+            <button id="notepad-preview-zoom-out" type="button">Aa−</button>
+            <input type="number" id="notepad-preview-zoom-label" min="65" max="240" step="1" value="100">
+            <button id="notepad-preview-zoom-in" type="button">Aa+</button>
+        </div>
+        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Μέγεθος Συμβόλων</div>
+        <div class="toolbar-size-control" role="group">
+            <button class="auto-badge active" id="toolbar-auto-badge" type="button" aria-pressed="true">AUTO</button>
+            <button id="toolbar-size-down" type="button">A−</button>
+            <input type="number" id="toolbar-size-label" min="70" max="200" step="10" value="100">
+            <button id="toolbar-size-up" type="button">A+</button>
+        </div>
+        <button class="syntax-toggle-btn active" id="syntax-highlight-toggle" type="button"
+            aria-pressed="true">Χρωματισμός Σύνταξης: ΕΝΕΡΓΟΣ</button>
+
+        <div class="settings-donate-wrap">
+            <button class="settings-donate-toggle" id="settings-donate-toggle" type="button" aria-expanded="false">
+                <span>☕ Στήριξη ανάπτυξης (Δωρεά)</span>
+                <span class="donate-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="settings-donate-card" id="settings-donate-card">
+                <div>Αν σας βοηθάει καθημερινά το εργαλείο, μπορείτε προαιρετικά να στηρίξετε την ανάπτυξή του.</div>
+                <button class="settings-donate-copy" id="settings-donate-copy" type="button">☕ Κεράστε έναν
+                    καφέ</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel-popup" id="recent-popup"></div>
+    <div class="panel-popup" id="panel-popup"></div>
+
+    <!-- Modal Πίνακα LaTeX -->
+    <div class="modal-overlay" id="matrix-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Προσαρμοσμένος Πίνακας</h2>
+                <button class="modal-close" id="close-matrix" title="Κλείσιμο (Esc)">&times;</button>
+            </div>
+            <div class="matrix-types">
+                <label class="matrix-type-label"><input type="radio" name="matrix-type" value="matrix" checked><span
+                        class="matrix-check"></span>
+                    <div class="matrix-preview" data-latex="\begin{matrix} a & b \\ c & d \end{matrix}"></div><span
+                        class="matrix-name">Απλός</span>
+                </label>
+                <label class="matrix-type-label"><input type="radio" name="matrix-type" value="pmatrix"><span
+                        class="matrix-check"></span>
+                    <div class="matrix-preview" data-latex="\begin{pmatrix} a & b \\ c & d \end{pmatrix}"></div><span
+                        class="matrix-name">Παρενθέσεις</span>
+                </label>
+                <label class="matrix-type-label"><input type="radio" name="matrix-type" value="bmatrix"><span
+                        class="matrix-check"></span>
+                    <div class="matrix-preview" data-latex="\begin{bmatrix} a & b \\ c & d \end{bmatrix}"></div><span
+                        class="matrix-name">Αγκύλες</span>
+                </label>
+                <label class="matrix-type-label"><input type="radio" name="matrix-type" value="vmatrix"><span
+                        class="matrix-check"></span>
+                    <div class="matrix-preview" data-latex="\begin{vmatrix} a & b \\ c & d \end{vmatrix}"></div><span
+                        class="matrix-name">Ορίζουσα</span>
+                </label>
+                <label class="matrix-type-label"><input type="radio" name="matrix-type" value="Vmatrix"><span
+                        class="matrix-check"></span>
+                    <div class="matrix-preview" data-latex="\begin{Vmatrix} a & b \\ c & d \end{Vmatrix}"></div><span
+                        class="matrix-name">Νόρμα</span>
+                </label>
+                <label class="matrix-type-label"><input type="radio" name="matrix-type" value="Bmatrix"><span
+                        class="matrix-check"></span>
+                    <div class="matrix-preview" data-latex="\begin{Bmatrix} a & b \\ c & d \end{Bmatrix}"></div><span
+                        class="matrix-name">Άγκιστρα</span>
+                </label>
+                <label class="matrix-type-label"><input type="radio" name="matrix-type" value="cases"><span
+                        class="matrix-check"></span>
+                    <div class="matrix-preview" data-latex="\begin{cases} a & b \\ c & d \end{cases}"></div><span
+                        class="matrix-name">Περιπτώσεις</span>
+                </label>
+                <label class="matrix-type-label"><input type="radio" name="matrix-type" value="aligned"><span
+                        class="matrix-check"></span>
+                    <div class="matrix-preview" data-latex="\begin{aligned} x &= a \\ y &= b \end{aligned}"></div><span
+                        class="matrix-name">Στοιχισμένες</span>
+                </label>
+            </div>
+            <div class="matrix-inputs">
+                <div><label for="matrix-rows">Γραμμές:</label><input type="number" id="matrix-rows" value="3" min="1"
+                        max="10"></div>
+                <div><label for="matrix-cols">Στήλες:</label><input type="number" id="matrix-cols" value="3" min="1"
+                        max="10"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" id="cancel-matrix" type="button" title="Κλείσιμο (Esc)">Κλείσιμο</button>
+                <button class="btn-apply" id="apply-matrix" type="button">Εφαρμογή</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Συνδέσμου / Εικόνας / GeoGebra -->
+    <div class="modal-overlay" id="phpbb-media-modal">
+        <div class="modal-content" style="max-width: 360px;">
+            <div class="modal-header">
+                <h2 id="phpbb-media-title">Εισαγωγή Συνδέσμου</h2>
+                <button class="modal-close" id="close-phpbb-media" title="Κλείσιμο (Esc)">&times;</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin:8px 0;">
+                <div>
+                    <label id="phpbb-media-url-label" for="phpbb-media-url"
+                        style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Διεύθυνση URL:</label>
+                    <input type="text" id="phpbb-media-url" placeholder="https://..."
+                        style="width:100%;padding:7px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);">
+                </div>
+                <div id="phpbb-media-text-wrap">
+                    <label for="phpbb-media-text"
+                        style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Κείμενο συνδέσμου
+                        (προαιρετικό):</label>
+                    <input type="text" id="phpbb-media-text" placeholder="Κείμενο..."
+                        style="width:100%;padding:7px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" id="cancel-phpbb-media" type="button" title="Ακύρωση (Esc)">Ακύρωση</button>
+                <button class="btn-apply" id="apply-phpbb-media" type="button">Εισαγωγή</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/ui-init.js"></script>
+    <script src="js/data/dataBasicMaths.js"></script>
+    <script src="js/data/dataCodeCogsAlike.js"></script>
+    <script src="js/data/dataScience.js"></script>
+    <script type="module" src="js/popup/main.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,18 @@
+/* ============================================================
+   Εφέ Θολώματος ("Τζαμαρία") με toggle data-blur="true"
+   ============================================================ */
+:root[data-transparent="true"][data-blur="true"] .toolbars-container,
+:root[data-transparent="true"][data-blur="true"] .notepad-bar,
+:root[data-transparent="true"][data-blur="true"] .preview-outer,
+:root[data-transparent="true"][data-blur="true"] .notepad-preview-outer {
+  -webkit-backdrop-filter: blur(14px) saturate(145%) !important;
+  backdrop-filter: blur(14px) saturate(145%) !important;
+}
+
+:root[data-transparent="true"][data-blur="false"] .toolbars-container,
+:root[data-transparent="true"][data-blur="false"] .notepad-bar,
+:root[data-transparent="true"][data-blur="false"] .preview-outer,
+:root[data-transparent="true"][data-blur="false"] .notepad-preview-outer {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
