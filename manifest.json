@@ -1,0 +1,73 @@
+{
+  "manifest_version": 3,
+  "name": "MathGlass — Επεξεργαστής LaTeX & phpBB",
+  "version": "3.1.0",
+  "description": "Σύνταξη εξισώσεων LaTeX & σημειωματάριο phpBB με ζωντανή προεπισκόπηση, εφέ θολώματος, αυτόματο $ και εξαγωγή PNG/PDF.",
+  "action": {
+    "default_title": "Άνοιγμα/Κλείσιμο MathGlass",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "js/background.js",
+    "scripts": [
+      "js/background.js"
+    ]
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "sidePanel",
+    "storage",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "side_panel": {
+    "default_path": "popup.html"
+  },
+  "sidebar_action": {
+    "default_title": "MathGlass — LaTeX & phpBB",
+    "default_panel": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "commands": {
+    "toggle-editor": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Άνοιγμα/Κλείσιμο MathGlass"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "popup.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mathglass@addons.local",
+      "strict_min_version": "109.0"
+    }
+  }
+}
