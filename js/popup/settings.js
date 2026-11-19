@@ -13,6 +13,7 @@ export const state = {
   notepadPreviewScale: 1, notepadPreviewScaleAuto: true,
   recent: [], dataset: DEFAULTS.dataset,
   userScrolled: false,
+  notepadUserScrolled: false,
 };
 
 const SCALE_PROP = {

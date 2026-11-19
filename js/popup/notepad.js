@@ -1,13 +1,26 @@
 import { KEYS, MSG } from '../core/constants.js';
 import { $, on, clamp, rafThrottle } from '../core/dom.js';
 import { get, set, mirrorGet } from '../core/storage.js';
+import { translateLatexErrorToGreek } from '../core/errors.js';
+import { state } from './settings.js';
+import { renderPartialLatexHtml } from './preview.js';
 import { wrappedCode, copyText, insertTextToPage } from './actions.js';
 
 let notepadOpen = false;
 let autoDollarWrap = true;
+let lastProgWrap = { left: -1, top: -1 };
+let lastProgMath = { el: null, left: -1 };
+let lastCursorPos = -1;
+
+const CURSOR_SENTINEL = '\uFFF0NPCUR\uFFF1';
 
 export function isNotepadOpen() { return notepadOpen; }
 export function isAutoDollarWrapEnabled() { return autoDollarWrap; }
+
+function getActiveCursorPos(ta) {
+  if (!ta) return 0;
+  return (ta.selectionDirection === 'backward' ? ta.selectionStart : ta.selectionEnd) ?? ta.value.length;
+}
 
 function notifyState() {
   if (window.parent === window) return;
@@ -18,7 +31,7 @@ function notifyState() {
       recentOpen: Boolean($('#recent-popup')?.classList.contains('active')),
       notepadOpen,
     }, '*');
-  } catch {}
+  } catch { }
 }
 
 export function setNotepadOpen(open) {
@@ -29,6 +42,7 @@ export function setNotepadOpen(open) {
   if (notepadOpen) {
     $('#settings-popup')?.classList.remove('active');
     $('#recent-popup')?.classList.remove('active');
+    state.notepadUserScrolled = false;
     renderHybridPreview();
     requestAnimationFrame(() => { const np = $('#notepad-input'); try { np?.focus({ preventScroll: true }); } catch { np?.focus(); } });
   } else {
@@ -42,11 +56,20 @@ export function toggleNotepad() { setNotepadOpen(!notepadOpen); }
 export function tokenizeHybridLatex(input) {
   const tokens = [];
   let textBuf = '';
+  let textStart = 0;
   let i = 0;
   const n = input.length;
 
-  const flushText = () => {
-    if (textBuf) { tokens.push({ type: 'text', content: textBuf }); textBuf = ''; }
+  const flushText = endIdx => {
+    if (textBuf) {
+      tokens.push({ type: 'text', content: textBuf, start: textStart, end: endIdx });
+      textBuf = '';
+    }
+  };
+
+  const pushTextChar = (ch, idx) => {
+    if (!textBuf) textStart = idx;
+    textBuf += ch;
   };
 
   const findClosing = (start, delim) => {
@@ -76,17 +99,21 @@ export function tokenizeHybridLatex(input) {
   };
 
   while (i < n) {
-    if (input[i] === '\\' && input[i + 1] === '$') { textBuf += '\\$'; i += 2; continue; }
+    if (input[i] === '\\' && input[i + 1] === '$') { pushTextChar('\\$', i); i += 2; continue; }
 
     if (input[i] === '[' && input.slice(i, i + 5).toLowerCase() === '[tex]') {
       const end = findClosing(i + 5, '[/tex]');
       if (end !== -1) {
-        flushText();
+        flushText(i);
         const inner = input.slice(i + 5, end);
         const beforeC = i > 0 ? input[i - 1] : '\n';
         const afterC = end + 6 < n ? input[end + 6] : '\n';
         const disp = ((beforeC === '\n' || i === 0) && (afterC === '\n' || end + 6 === n)) || inner.includes('\n') || inner.includes('\\displaystyle');
-        tokens.push({ type: 'math', display: disp, content: inner, openDelim: input.slice(i, i + 5), closeDelim: input.slice(end, end + 6) });
+        tokens.push({
+          type: 'math', display: disp, content: inner,
+          openDelim: input.slice(i, i + 5), closeDelim: input.slice(end, end + 6),
+          start: i, end: end + 6, contentStart: i + 5, contentEnd: end,
+        });
         i = end + 6; continue;
       }
     }
@@ -94,37 +121,73 @@ export function tokenizeHybridLatex(input) {
     if (input[i] === '[' && input.slice(i, i + 7).toLowerCase() === '[latex]') {
       const end = findClosing(i + 7, '[/latex]');
       if (end !== -1) {
-        flushText();
-        tokens.push({ type: 'math', display: true, content: input.slice(i + 7, end), openDelim: input.slice(i, i + 7), closeDelim: input.slice(end, end + 8) });
+        flushText(i);
+        tokens.push({
+          type: 'math', display: true, content: input.slice(i + 7, end),
+          openDelim: input.slice(i, i + 7), closeDelim: input.slice(end, end + 8),
+          start: i, end: end + 8, contentStart: i + 7, contentEnd: end,
+        });
         i = end + 8; continue;
       }
     }
 
     if (input[i] === '$' && input[i + 1] === '$') {
       const end = findClosing(i + 2, '$$');
-      if (end !== -1) { flushText(); tokens.push({ type: 'math', display: true, content: input.slice(i + 2, end), openDelim: '$$', closeDelim: '$$' }); i = end + 2; continue; }
+      if (end !== -1) {
+        flushText(i);
+        tokens.push({
+          type: 'math', display: true, content: input.slice(i + 2, end),
+          openDelim: '$$', closeDelim: '$$',
+          start: i, end: end + 2, contentStart: i + 2, contentEnd: end,
+        });
+        i = end + 2; continue;
+      }
     }
 
     if (input[i] === '\\' && input[i + 1] === '[') {
       const end = findClosing(i + 2, '\\]');
-      if (end !== -1) { flushText(); tokens.push({ type: 'math', display: true, content: input.slice(i + 2, end), openDelim: '\\[', closeDelim: '\\]' }); i = end + 2; continue; }
+      if (end !== -1) {
+        flushText(i);
+        tokens.push({
+          type: 'math', display: true, content: input.slice(i + 2, end),
+          openDelim: '\\[', closeDelim: '\\]',
+          start: i, end: end + 2, contentStart: i + 2, contentEnd: end,
+        });
+        i = end + 2; continue;
+      }
     }
 
     if (input[i] === '\\' && input[i + 1] === '(') {
       const end = findClosing(i + 2, '\\)');
-      if (end !== -1) { flushText(); tokens.push({ type: 'math', display: false, content: input.slice(i + 2, end), openDelim: '\\(', closeDelim: '\\)' }); i = end + 2; continue; }
+      if (end !== -1) {
+        flushText(i);
+        tokens.push({
+          type: 'math', display: false, content: input.slice(i + 2, end),
+          openDelim: '\\(', closeDelim: '\\)',
+          start: i, end: end + 2, contentStart: i + 2, contentEnd: end,
+        });
+        i = end + 2; continue;
+      }
     }
 
     if (input[i] === '$' && input[i + 1] !== '$') {
       const end = findSingleDollarEnd(i + 1);
-      if (end !== -1 && end > i + 1) { flushText(); tokens.push({ type: 'math', display: false, content: input.slice(i + 1, end), openDelim: '$', closeDelim: '$' }); i = end + 1; continue; }
+      if (end !== -1 && end > i + 1) {
+        flushText(i);
+        tokens.push({
+          type: 'math', display: false, content: input.slice(i + 1, end),
+          openDelim: '$', closeDelim: '$',
+          start: i, end: end + 1, contentStart: i + 1, contentEnd: end,
+        });
+        i = end + 1; continue;
+      }
     }
 
-    textBuf += input[i];
+    pushTextChar(input[i], i);
     i++;
   }
 
-  flushText();
+  flushText(i);
   return tokens;
 }
 
@@ -202,35 +265,75 @@ function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-export function renderPhpbbHtml(input, isLight) {
+function injectCursorSentinelInText(rawText, localPos) {
+  let pos = clamp(localPos, 0, rawText.length);
+  const mediaRe = /\[(url|img|ggb)\][\s\S]*?\[\/\1\]/gi;
+  let m;
+  while ((m = mediaRe.exec(rawText)) !== null) {
+    if (pos > m.index && pos < m.index + m[0].length) {
+      pos = m.index + m[0].length;
+    }
+  }
+  const tagRe = /\[(?:\/?(?:b|i|u|s|quote|code|list|img|url|size|color|ggb|hide|tex|latex|table|tr|th|td)|\*)(?:=[^\]]*)?\]/gi;
+  while ((m = tagRe.exec(rawText)) !== null) {
+    if (pos > m.index && pos < m.index + m[0].length) {
+      pos = m.index + m[0].length;
+    }
+  }
+  return rawText.slice(0, pos) + CURSOR_SENTINEL + rawText.slice(pos);
+}
+
+export function renderPhpbbHtml(input, isLight, options = {}) {
+  const { cursorPos = null, metaOut = null } = options;
+  const trackCursor = typeof cursorPos === 'number' && cursorPos >= 0;
   const tokens = tokenizeHybridLatex(input);
   const mathSlots = [];
   let combined = '';
+  let cursorPlaced = false;
+  let activeMathIndex = -1;
 
   for (const tok of tokens) {
     if (tok.type === 'text') {
-      combined += escHtml(tok.content.replace(/\\\$/g, '$'));
+      let rawText = tok.content;
+      if (trackCursor && !cursorPlaced && activeMathIndex === -1 && cursorPos >= tok.start && cursorPos <= tok.end) {
+        rawText = injectCursorSentinelInText(rawText, cursorPos - tok.start);
+        cursorPlaced = true;
+      }
+      combined += escHtml(rawText.replace(/\\\$/g, '$'));
     } else {
       const idx = mathSlots.length;
       const inner = tok.content.trim();
+      const isActive = trackCursor && !cursorPlaced && activeMathIndex === -1 && cursorPos >= tok.start && cursorPos <= tok.end;
+      if (isActive) {
+        activeMathIndex = idx;
+        if (metaOut) {
+          const offsetInMath = clamp(cursorPos - tok.contentStart, 0, tok.content.length);
+          metaOut.activeMathBefore = tok.content.slice(0, offsetInMath);
+          metaOut.activeMathDisplay = tok.display;
+        }
+      }
+
       let rendered = '';
       if (!inner) {
         rendered = escHtml((tok.openDelim || '$') + (tok.closeDelim || '$'));
       } else {
         try {
           rendered = katex.renderToString(inner, {
-            throwOnError: false,
+            throwOnError: true,
             displayMode: tok.display,
-            errorColor: isLight ? '#dc2626' : '#f28b82',
           });
-        } catch {
-          rendered = escHtml(tok.content);
+        } catch (err) {
+          const errTitle = escHtml(translateLatexErrorToGreek(err));
+          const partial = renderPartialLatexHtml(inner, err, false, tok.display, isLight);
+          rendered = `<span class="np-math-error" title="${errTitle}">${partial}</span>`;
         }
       }
+
+      const activeAttr = isActive ? ' data-np-active-math="1"' : '';
       mathSlots.push(
         tok.display
-          ? `<div class="np-math-display">${rendered}</div>`
-          : `<span class="np-math-inline">${rendered}</span>`
+          ? `<div class="np-math-display"${activeAttr}>${rendered}</div>`
+          : `<span class="np-math-inline"${activeAttr}>${rendered}</span>`
       );
       combined += `@@MATH_SLOT_${idx}@@`;
     }
@@ -254,7 +357,11 @@ export function renderPhpbbHtml(input, isLight) {
   html = html.replace(/\[ggb\]([\s\S]*?)\[\/ggb\]/gi, (_, id) => `<div class="phpbb-ggb">📐 GeoGebra: <b>${id.trim()}</b></div>`);
   html = html.replace(/\[hide(?:=&quot;([^&]*)&quot;|=([^\]]*))?\]([\s\S]*?)\[\/hide\]/gi, (_, q1, q2, inner) => {
     const title = q1 || q2 || 'Κρυφό περιεχόμενο (κλικ)';
-    return `<details class="phpbb-hide"><summary>${title}</summary><div class="phpbb-hide-body">${inner.trim()}</div></details>`;
+    const hasCursor = trackCursor && (
+      inner.includes(CURSOR_SENTINEL) ||
+      (activeMathIndex !== -1 && inner.includes(`@@MATH_SLOT_${activeMathIndex}@@`))
+    );
+    return `<details class="phpbb-hide"${hasCursor ? ' open' : ''}><summary>${title}</summary><div class="phpbb-hide-body">${inner.trim()}</div></details>`;
   });
   html = html.replace(/\[quote(?:=&quot;([^&]*)&quot;|=([^\]]*))?\]([\s\S]*?)\[\/quote\]/gi, (_, q1, q2, inner) => {
     const author = q1 || q2;
@@ -276,21 +383,131 @@ export function renderPhpbbHtml(input, isLight) {
   });
 
   html = html.replace(/@@MATH_SLOT_(\d+)@@/g, (_, idx) => mathSlots[Number(idx)] || '');
+  if (trackCursor) {
+    html = html.split(CURSOR_SENTINEL).join('<span id="np-cursor-anchor" class="np-cursor-anchor" aria-hidden="true"></span>');
+  }
   return html;
+}
+
+function measureMathPrefixWidth(beforeRaw, previewEl, mathEl, displayMode) {
+  const line = beforeRaw.split('\\\\').pop() || '';
+  const cleaned = line.includes('\\begin') ? line : line.replace(/&/g, ' ');
+  if (!cleaned.trim()) return 0;
+  const t = document.createElement('div');
+  t.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;left:-9999px;top:0;';
+  t.style.fontSize = getComputedStyle(previewEl).fontSize;
+  t.style.fontFamily = getComputedStyle(mathEl).fontFamily;
+  let w = 0;
+  try {
+    katex.render(cleaned, t, { throwOnError: false, displayMode });
+    document.body.appendChild(t);
+    w = t.getBoundingClientRect().width;
+  } catch { }
+  t.remove();
+  return w;
+}
+
+function scrollNotepadToCursor(src, cursorPos, meta) {
+  const previewWrap = $('#notepad-preview-wrap');
+  const previewEl = $('#notepad-preview');
+  if (!previewWrap || !previewEl) return;
+
+  const activeMath = previewEl.querySelector('[data-np-active-math="1"]');
+  if (activeMath) {
+    if (activeMath.classList.contains('np-math-display') && activeMath.scrollWidth > activeMath.clientWidth) {
+      const maxMathX = Math.max(0, activeMath.scrollWidth - activeMath.clientWidth);
+      const w = measureMathPrefixWidth(meta.activeMathBefore || '', previewEl, activeMath, meta.activeMathDisplay);
+      const katexBox = activeMath.querySelector('.katex-display > .katex, .katex');
+      const startOff = katexBox ? Math.max(0, katexBox.offsetLeft) : 0;
+      const cursorX = startOff + w;
+      let targetX = activeMath.scrollLeft;
+      if (cursorX < activeMath.scrollLeft + 40) {
+        targetX = Math.max(0, cursorX - 40);
+      } else if (cursorX > activeMath.scrollLeft + activeMath.clientWidth - 60) {
+        targetX = clamp(cursorX - activeMath.clientWidth + 60, 0, maxMathX);
+      }
+      activeMath.scrollLeft = targetX;
+      lastProgMath = { el: activeMath, left: activeMath.scrollLeft };
+    }
+
+    const wRect = previewWrap.getBoundingClientRect();
+    const mRect = activeMath.getBoundingClientRect();
+    if (mRect.bottom > wRect.bottom - 14) {
+      previewWrap.scrollTop += (mRect.bottom - wRect.bottom) + 18;
+    } else if (mRect.top < wRect.top + 14) {
+      previewWrap.scrollTop -= (wRect.top - mRect.top) + 18;
+    }
+    if (previewWrap.scrollWidth > previewWrap.clientWidth) {
+      if (mRect.right > wRect.right - 20) previewWrap.scrollLeft += (mRect.right - wRect.right) + 28;
+      else if (mRect.left < wRect.left + 20) previewWrap.scrollLeft -= (wRect.left - mRect.left) + 28;
+    }
+    lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+    return;
+  }
+
+  const anchor = previewEl.querySelector('#np-cursor-anchor');
+  if (!anchor) {
+    lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+    return;
+  }
+
+  if (!src.slice(cursorPos).trim() && previewWrap.scrollHeight > previewWrap.clientHeight) {
+    previewWrap.scrollTop = previewWrap.scrollHeight;
+  } else {
+    const wRect = previewWrap.getBoundingClientRect();
+    const aRect = anchor.getBoundingClientRect();
+    if (aRect.bottom > wRect.bottom - 16) {
+      previewWrap.scrollTop += (aRect.bottom - wRect.bottom) + 22;
+    } else if (aRect.top < wRect.top + 16) {
+      previewWrap.scrollTop -= (wRect.top - aRect.top) + 22;
+    }
+  }
+
+  const codeBlock = anchor.closest('pre.phpbb-code');
+  if (codeBlock && codeBlock.scrollWidth > codeBlock.clientWidth) {
+    const cRect = codeBlock.getBoundingClientRect();
+    const aRect = anchor.getBoundingClientRect();
+    if (aRect.right > cRect.right - 20) codeBlock.scrollLeft += (aRect.right - cRect.right) + 28;
+    else if (aRect.left < cRect.left + 20) codeBlock.scrollLeft -= (cRect.left - aRect.left) + 28;
+    lastProgMath = { el: codeBlock, left: codeBlock.scrollLeft };
+  }
+  if (previewWrap.scrollWidth > previewWrap.clientWidth) {
+    const wRect = previewWrap.getBoundingClientRect();
+    const aRect = anchor.getBoundingClientRect();
+    if (aRect.right > wRect.right - 24) previewWrap.scrollLeft += (aRect.right - wRect.right) + 32;
+    else if (aRect.left < wRect.left + 24) previewWrap.scrollLeft -= (wRect.left - aRect.left) + 32;
+  }
+
+  lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
 }
 
 export function renderHybridPreview() {
   const inputEl = $('#notepad-input');
   const previewEl = $('#notepad-preview');
+  const previewWrap = $('#notepad-preview-wrap');
   if (!inputEl || !previewEl) return;
 
   const src = inputEl.value;
+  const follow = !state.notepadUserScrolled;
+  const cursorPos = getActiveCursorPos(inputEl);
+  lastCursorPos = cursorPos;
+
   if (!src.trim()) {
     previewEl.innerHTML = '<span class="np-placeholder">Η υβριδική προεπισκόπηση (phpBB + KaTeX) θα εμφανιστεί εδώ…</span>';
+    if (previewWrap) lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
     return;
   }
+
   const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-  previewEl.innerHTML = renderPhpbbHtml(src, isLight);
+  const meta = { activeMathBefore: '', activeMathDisplay: false };
+  previewEl.innerHTML = renderPhpbbHtml(src, isLight, {
+    cursorPos,
+    metaOut: meta,
+  });
+
+  if (follow && !document.body.classList.contains('notepad-reader-mode')) {
+    requestAnimationFrame(() => scrollNotepadToCursor(src, cursorPos, meta));
+  }
 }
 
 function wrapInNotepad(before, after, fallback = '') {
@@ -303,13 +520,14 @@ function wrapInNotepad(before, after, fallback = '') {
   const inner = sel || fallback;
   const text = before + inner + after;
   let ok = false;
-  try { ok = document.execCommand('insertText', false, text); } catch {}
+  try { ok = document.execCommand('insertText', false, text); } catch { }
   if (!ok) ta.setRangeText(text, s, e, 'preserve');
   if (!sel && after) {
     ta.setSelectionRange(s + before.length, s + before.length + fallback.length);
   } else {
     ta.setSelectionRange(s + text.length, s + text.length);
   }
+  state.notepadUserScrolled = false;
   renderHybridPreview();
   window.__refreshSyntaxHighlight?.();
   set(KEYS.notepadText, ta.value);
@@ -326,6 +544,8 @@ export function init(ac) {
   const sig = ac.signal;
   const ta = $('#notepad-input');
   const pvOuter = $('#notepad-preview-outer');
+  const previewWrap = $('#notepad-preview-wrap');
+  const previewEl = $('#notepad-preview');
   const rz = $('#notepad-resizer');
   if (!ta || !pvOuter) return;
 
@@ -374,8 +594,68 @@ export function init(ac) {
     }, false, sig);
   }
 
-  on(ta, 'input', () => { render(); scheduleSave(); }, false, sig);
+  on(ta, 'input', () => {
+    state.notepadUserScrolled = false;
+    render();
+    scheduleSave();
+  }, false, sig);
+
+  const syncCursorMove = rafThrottle(() => {
+    const pos = getActiveCursorPos(ta);
+    if (pos === lastCursorPos) return;
+    state.notepadUserScrolled = false;
+    renderHybridPreview();
+  });
+  on(ta, 'keyup', e => {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+      syncCursorMove();
+    }
+  }, false, sig);
+  on(ta, 'mouseup', syncCursorMove, false, sig);
+
   on(window, 'pagehide', () => set(KEYS.notepadText, ta.value), false, sig);
+
+  // Wheel: vertical → horizontal (εξίσωση/κώδικας ή wrap) → parent (μία κίνηση ανά notch)
+  if (previewWrap) {
+    on(previewWrap, 'wheel', e => {
+      if (e.ctrlKey || e.metaKey) return;
+      if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+
+      const maxY = previewWrap.scrollHeight - previewWrap.clientHeight;
+      if (maxY > 1) {
+        const down = e.deltaY > 0;
+        const atEnd = down ? previewWrap.scrollTop >= maxY - 1 : previewWrap.scrollTop <= 1;
+        if (!atEnd) return;
+      }
+
+      let hTarget = e.target?.closest?.('.np-math-display, pre.phpbb-code, table.phpbb-table');
+      while (hTarget && hTarget !== previewWrap && hTarget.scrollWidth <= hTarget.clientWidth + 1) {
+        hTarget = hTarget.parentElement?.closest?.('.np-math-display, pre.phpbb-code, table.phpbb-table');
+      }
+      if (!hTarget || hTarget.scrollWidth <= hTarget.clientWidth + 1) {
+        hTarget = previewWrap.scrollWidth > previewWrap.clientWidth + 1 ? previewWrap : null;
+      }
+      if (!hTarget) return;
+
+      const before = hTarget.scrollLeft;
+      hTarget.scrollLeft += e.deltaY;
+      if (hTarget.scrollLeft !== before) e.preventDefault();
+    }, { passive: false }, sig);
+
+    on(previewWrap, 'scroll', () => {
+      const same = Math.abs(previewWrap.scrollLeft - lastProgWrap.left) < 2 && Math.abs(previewWrap.scrollTop - lastProgWrap.top) < 2;
+      if (!same) state.notepadUserScrolled = true;
+    }, { passive: true }, sig);
+  }
+
+  if (previewEl) {
+    on(previewEl, 'scroll', e => {
+      const target = e.target;
+      if (!target || target === previewEl) return;
+      if (target === lastProgMath.el && Math.abs(target.scrollLeft - lastProgMath.left) < 2) return;
+      state.notepadUserScrolled = true;
+    }, { passive: true, capture: true }, sig);
+  }
 
   const toggleBtn = $('#notepad-toggle');
   if (toggleBtn) on(toggleBtn, 'click', e => { e.stopPropagation(); toggleNotepad(); }, false, sig);
@@ -450,8 +730,9 @@ export function init(ac) {
       const cleanedAll = clearBbcode(ta.value);
       ta.select();
       let ok = false;
-      try { ok = document.execCommand('insertText', false, cleanedAll); } catch {}
+      try { ok = document.execCommand('insertText', false, cleanedAll); } catch { }
       if (!ok) ta.value = cleanedAll;
+      state.notepadUserScrolled = false;
       renderHybridPreview();
       window.__refreshSyntaxHighlight?.();
       set(KEYS.notepadText, ta.value);
@@ -511,6 +792,7 @@ export function init(ac) {
       resetClear();
       ta.focus(); ta.select();
       try { document.execCommand('insertText', false, ''); } catch { ta.value = ''; }
+      state.notepadUserScrolled = false;
       renderHybridPreview();
       window.__refreshSyntaxHighlight?.();
       set(KEYS.notepadText, '');
@@ -536,7 +818,7 @@ export function init(ac) {
     }, false, sig);
     const endRz = e => {
       if (!start) return; start = null;
-      try { rz.releasePointerCapture(e.pointerId); } catch {}
+      try { rz.releasePointerCapture(e.pointerId); } catch { }
       rz.classList.remove('active'); document.body.classList.remove('is-resizing');
     };
     on(rz, 'pointerup', endRz, false, sig); on(rz, 'pointercancel', endRz, false, sig);

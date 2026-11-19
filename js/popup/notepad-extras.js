@@ -1,6 +1,7 @@
 import { KEYS } from '../core/constants.js';
 import { $, on } from '../core/dom.js';
 import { set } from '../core/storage.js';
+import { state } from './settings.js';
 
 const TEMPLATES = [
   {
@@ -66,8 +67,9 @@ function insertTemplateSnippet(ta, snippet) {
   const needsGap = s > 0 && ta.value[s - 1] !== '\n' ? '\n\n' : '';
   const text = needsGap + snippet;
   let ok = false;
-  try { ok = document.execCommand('insertText', false, text); } catch {}
+  try { ok = document.execCommand('insertText', false, text); } catch { }
   if (!ok) ta.setRangeText(text, s, e, 'end');
+  state.notepadUserScrolled = false;
   window.__renderHybridPreview?.();
   window.__refreshSyntaxHighlight?.();
   set(KEYS.notepadText, ta.value);
@@ -165,7 +167,7 @@ export function init(ac) {
       window.__focusActiveEditor?.();
     }
     if (window.parent !== window) {
-      try { window.parent.postMessage({ type: 'latex-panel-reader-mode', active: target }, '*'); } catch {}
+      try { window.parent.postMessage({ type: 'latex-panel-reader-mode', active: target }, '*'); } catch { }
     }
   };
   window.__toggleNotepadReaderMode = setReaderMode;

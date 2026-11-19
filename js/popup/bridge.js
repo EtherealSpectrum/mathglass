@@ -58,7 +58,7 @@ export const __insertIntoPageFn = function (code) {
     const end = el.selectionEnd ?? el.value.length;
     el.value = el.value.slice(0, start) + code + el.value.slice(end);
     const pos = start + code.length;
-    try { el.selectionStart = el.selectionEnd = pos; } catch {}
+    try { el.selectionStart = el.selectionEnd = pos; } catch { }
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
     el.focus();
@@ -106,7 +106,7 @@ export function init(ac) {
         case 'toggle-recent': toolbar.toggleRecentFromPanel(d.anchorLeft); break;
         case 'toggle-notepad': notepad.toggleNotepad(); break;
         case 'close-popups': toolbar.closeAllPopups(); break;
-        case 'focus-editor': try { window.focus(); } catch {} window.__focusActiveEditor?.(); break;
+        case 'focus-editor': try { window.focus(); } catch { } window.__focusActiveEditor?.(); break;
         case 'run-shortcut': window.__handlePanelShortcut?.(d); break;
         case 'set-theme': applyTheme(d.theme, false); break;
         case 'set-transparency': applyTransparency(d.level, false); break;
@@ -126,7 +126,7 @@ export function init(ac) {
 
   if (window.parent === window) {
     const api = (typeof browser !== 'undefined' ? browser : chrome).runtime;
-    try { api.sendMessage({ action: MSG.INJECT_TRACKER }).catch(() => {}); } catch {}
+    try { api.sendMessage({ action: MSG.INJECT_TRACKER }).catch(() => { }); } catch { }
   }
 
   on(window, 'pagehide', flushDrafts, false, sig);
@@ -136,8 +136,11 @@ export function init(ac) {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || window.parent === window) return;
     let el = e.target;
     while (el && el !== document.body && el !== document.documentElement) {
-      const v = (el.scrollHeight - el.clientHeight) > 1;
-      const h = (el.scrollWidth - el.clientWidth) > 1;
+      const cs = getComputedStyle(el);
+      const canY = cs.overflowY === 'auto' || cs.overflowY === 'scroll' || cs.overflowY === 'overlay';
+      const canX = cs.overflowX === 'auto' || cs.overflowX === 'scroll' || cs.overflowX === 'overlay';
+      const v = canY && (el.scrollHeight - el.clientHeight) > 1;
+      const h = canX && (el.scrollWidth - el.clientWidth) > 1;
       const hd = Math.abs(e.deltaX) > Math.abs(e.deltaY);
       if (v && ((e.deltaY > 0 && el.scrollTop < el.scrollHeight - el.clientHeight - 1) || (e.deltaY < 0 && el.scrollTop > 1))) return;
       if (h && (hd || !v) && ((e.deltaX > 0 && el.scrollLeft < el.scrollWidth - el.clientWidth - 1) || (e.deltaX < 0 && el.scrollLeft > 1))) return;

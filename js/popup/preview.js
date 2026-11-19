@@ -13,16 +13,18 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
-function renderPartialLatexHtml(src, err, alignLeft) {
+export function renderPartialLatexHtml(src, err, alignLeft, displayMode = true, isLightOverride = null) {
     const trimmed = src.trim();
     if (!trimmed) return '';
-    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const isLight = isLightOverride !== null
+        ? Boolean(isLightOverride)
+        : document.documentElement.getAttribute('data-theme') === 'light';
     const errorColor = isLight ? '#dc2626' : '#f28b82';
 
     try {
         const nonThrowingHtml = katex.renderToString(trimmed, {
             throwOnError: false,
-            displayMode: true,
+            displayMode,
             fleqn: alignLeft,
             errorColor,
         });
@@ -40,7 +42,7 @@ function renderPartialLatexHtml(src, err, alignLeft) {
     const tryRender = candidate => {
         if (!candidate.trim()) return null;
         try {
-            return katex.renderToString(candidate, { throwOnError: true, displayMode: true, fleqn: alignLeft });
+            return katex.renderToString(candidate, { throwOnError: true, displayMode, fleqn: alignLeft });
         } catch {
             return null;
         }

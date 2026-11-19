@@ -42,7 +42,7 @@ export function insertSnippet(before, after) {
   const text = actualBefore + sel + actualAfter;
 
   let ok = false;
-  try { ok = document.execCommand('insertText', false, text); } catch {}
+  try { ok = document.execCommand('insertText', false, text); } catch { }
   if (!ok) {
     target.setRangeText(text, s, e, 'preserve');
     target.dispatchEvent(new Event('input', { bubbles: true }));
@@ -53,11 +53,13 @@ export function insertSnippet(before, after) {
   target.setSelectionRange(pos, pos);
 
   if (npTa) {
+    state.notepadUserScrolled = false;
     window.__renderHybridPreview?.();
     window.__refreshSyntaxHighlight?.();
     set(KEYS.notepadText, target.value);
   } else {
     window.__draftUserEdited = true;
+    state.userScrolled = false;
     window.__renderPreview?.();
     window.__refreshSyntaxHighlight?.();
     set(KEYS.draft, target.value);
