@@ -6,6 +6,8 @@ const CFG = {
   editor:         { e: 0.80, min: 0.85, max: 2.20 },
   notepad:        { e: 0.75, min: 1.00, max: 2.10 },
   notepadPreview: { e: 0.80, min: 0.95, max: 2.10 },
+  notepadToolbar: { e: 0.65, min: 0.90, max: 1.75 },
+  headerBtn:      { e: 0.60, min: 0.90, max: 1.75 },
 };
 export function computeAutoScale(kind) {
   const vw = Math.max(200, window.innerWidth  || 540);

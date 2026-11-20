@@ -6,8 +6,26 @@ import { tokenizeHybridLatex } from './notepad.js';
 let syntaxEnabled = true;
 const editors = [];
 
-function escHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function escAttr(str) {
+  return String(str)
+    .replace(/\r\n?/g, '\n')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\t/g, '&#9;');
+}
+
+function tokSpan(cls, text) {
+  if (!text) return '';
+  const norm = String(text).replace(/\r\n?/g, '\n');
+  const attrCls = cls ? `sh-tok ${cls}` : 'sh-tok';
+  if (!norm.includes('\n')) {
+    return `<span class="${attrCls}" data-t="${escAttr(norm)}"></span>`;
+  }
+  return norm.split('\n').map(part =>
+    part ? `<span class="${attrCls}" data-t="${escAttr(part)}"></span>` : ''
+  ).join('\n');
 }
 
 function tokenizeLatex(code) {
@@ -33,40 +51,40 @@ function tokenizeLatex(code) {
     if (ch === '%') {
       let end = i + 1;
       while (end < n && code[end] !== '\n') end++;
-      tokens.push(`<span class="sh-comment">${escHtml(code.slice(i, end))}</span>`);
+      tokens.push(tokSpan('sh-comment', code.slice(i, end)));
       i = end; continue;
     }
     if (ch === '\\') {
       if (code.startsWith('\\begin', i) || code.startsWith('\\end', i)) {
         const m = code.slice(i).match(/^\\(?:begin|end)\{[^}]*\}/);
-        if (m) { tokens.push(`<span class="sh-env">${escHtml(m[0])}</span>`); i += m[0].length; continue; }
+        if (m) { tokens.push(tokSpan('sh-env', m[0])); i += m[0].length; continue; }
       }
       if (i + 1 < n && /[a-zA-Z@]+/.test(code[i + 1])) {
         let end = i + 2;
         while (end < n && /[a-zA-Z@]+/.test(code[end])) end++;
-        tokens.push(`<span class="sh-cmd">${escHtml(code.slice(i, end))}</span>`);
+        tokens.push(tokSpan('sh-cmd', code.slice(i, end)));
         i = end; continue;
       }
       if (i + 1 < n) {
         const pair = code.slice(i, i + 2);
-        tokens.push(`<span class="${pair === '\\\\' ? 'sh-op' : 'sh-cmd'}">${escHtml(pair)}</span>`);
+        tokens.push(tokSpan(pair === '\\\\' ? 'sh-op' : 'sh-cmd', pair));
         i += 2; continue;
       }
-      tokens.push('<span class="sh-err">\\</span>'); i++; continue;
+      tokens.push(tokSpan('sh-err', '\\')); i++; continue;
     }
-    if (ch === '{' || ch === '}') { tokens.push(`<span class="${unmatched.has(i) ? 'sh-err' : 'sh-brace'}">${ch}</span>`); i++; continue; }
-    if (ch === '[' || ch === ']') { tokens.push(`<span class="sh-bracket">${ch}</span>`); i++; continue; }
-    if (ch === '$') { tokens.push('<span class="sh-delim">$</span>'); i++; continue; }
-    if ('&^_~'.includes(ch)) { tokens.push(`<span class="sh-op">${escHtml(ch)}</span>`); i++; continue; }
+    if (ch === '{' || ch === '}') { tokens.push(tokSpan(unmatched.has(i) ? 'sh-err' : 'sh-brace', ch)); i++; continue; }
+    if (ch === '[' || ch === ']') { tokens.push(tokSpan('sh-bracket', ch)); i++; continue; }
+    if (ch === '$') { tokens.push(tokSpan('sh-delim', '$')); i++; continue; }
+    if ('&^_~'.includes(ch)) { tokens.push(tokSpan('sh-op', ch)); i++; continue; }
     if (/[0-9]/.test(ch)) {
       let end = i + 1;
       while (end < n && /[0-9.]/.test(code[end])) end++;
-      tokens.push(`<span class="sh-num">${escHtml(code.slice(i, end))}</span>`);
+      tokens.push(tokSpan('sh-num', code.slice(i, end)));
       i = end; continue;
     }
     let end = i + 1;
     while (end < n && !'%\\{}[]$&^_~'.includes(code[end]) && !/[0-9]/.test(code[end])) end++;
-    tokens.push(escHtml(code.slice(i, end)));
+    tokens.push(tokSpan('', code.slice(i, end)));
     i = end;
   }
   return tokens.join('');
@@ -75,11 +93,14 @@ function tokenizeLatex(code) {
 const BBCODE_TAG_RE = /(\[(?:\/?(?:b|i|u|s|quote|code|list|img|url|size|color|center|ggb|hide|tex|latex|table|tr|th|td)|\*)(?:=[^\]]*)?\])/gi;
 
 function highlightBbcodeText(text) {
-  return text.split(BBCODE_TAG_RE).map((part, idx) =>
-    idx % 2 === 1
-      ? `<span class="sh-bbtag">${escHtml(part)}</span>`
-      : escHtml(part).replace(/\\\$/g, '<span class="sh-comment">\\$</span>')
-  ).join('');
+  return text.split(BBCODE_TAG_RE).map((part, idx) => {
+    if (!part) return '';
+    if (idx % 2 === 1) return tokSpan('sh-bbtag', part);
+    return part.split(/(\\\$)/g).map((seg, sIdx) => {
+      if (!seg) return '';
+      return sIdx % 2 === 1 ? tokSpan('sh-comment', seg) : tokSpan('', seg);
+    }).join('');
+  }).join('');
 }
 
 function syncScrollbarPadding(ta, pre) {
@@ -90,14 +111,14 @@ function syncScrollbarPadding(ta, pre) {
   const preBorderW = (parseFloat(preCs.borderLeftWidth) || 0) + (parseFloat(preCs.borderRightWidth) || 0);
   const taSb = Math.max(0, ta.offsetWidth - ta.clientWidth - taBorderW);
   const preSb = Math.max(0, pre.offsetWidth - pre.clientWidth - preBorderW);
-  const deltaSb = Math.max(0, taSb - preSb);
+  const deltaSb = taSb - preSb;
   const basePr = parseFloat(taCs.paddingRight) || 0;
-  pre.style.paddingRight = deltaSb > 0 ? `${basePr + deltaSb}px` : '';
+  pre.style.paddingRight = deltaSb !== 0 ? `${Math.max(0, basePr + deltaSb)}px` : '';
 }
 
 function renderHighlight(ta, pre, mode) {
   if (!ta || !pre) return;
-  const val = ta.value || '';
+  const val = (ta.value || '').replace(/\r\n?/g, '\n');
   if (!syntaxEnabled) { pre.innerHTML = ''; return; }
   let html = '';
   if (mode === 'latex') {
@@ -109,12 +130,13 @@ function renderHighlight(ta, pre, mode) {
         const raw = seg.raw || `[code]${seg.content}[/code]`;
         const openTag = raw.slice(0, 6);
         const closeTag = raw.slice(-7);
-        return `<span class="sh-bbtag">${escHtml(openTag)}</span>${escHtml(seg.content)}<span class="sh-bbtag">${escHtml(closeTag)}</span>`;
+        return tokSpan('sh-bbtag', openTag) + tokSpan('', seg.content) + tokSpan('sh-bbtag', closeTag);
       }
-      return `<span class="sh-math-bg"><span class="sh-delim">${escHtml(seg.openDelim || '$')}</span>${tokenizeLatex(seg.content)}<span class="sh-delim">${escHtml(seg.closeDelim || '$')}</span></span>`;
+      return `<span class="sh-math-bg">${tokSpan('sh-delim', seg.openDelim || '$')}${tokenizeLatex(seg.content)}${tokSpan('sh-delim', seg.closeDelim || '$')}</span>`;
     }).join('');
   }
-  pre.innerHTML = html + (val.endsWith('\n') ? '\n ' : ' ');
+  if (html.startsWith('\n')) html = '<span class="sh-tok" data-t=""></span>' + html;
+  pre.innerHTML = html + (val.endsWith('\n') ? ' ' : '');
   syncScrollbarPadding(ta, pre);
   pre.scrollTop = ta.scrollTop;
   pre.scrollLeft = ta.scrollLeft;

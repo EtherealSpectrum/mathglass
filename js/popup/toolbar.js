@@ -6,6 +6,8 @@ let openPanelId = null, hoverTimer = null, anchor = null;
 let lastRecentAnchor = null;
 let lastSettingsAnchor = null;
 let panelAnchors = { settingsLeft: null, recentLeft: null };
+let pendingSettingsAnchorSync = false;
+let pendingRecentAnchorSync = false;
 
 const DATASETS = {
   codecogs_alike: () => window.TOOLBARS_CODECOGS_ALIKE || [],
@@ -25,16 +27,60 @@ function notifyPopupState() {
   } catch {}
 }
 
+function clampOpenPopup(popup) {
+  if (!popup || !popup.classList.contains('active')) return;
+  const prevScrollTop = popup.scrollTop;
+  popup.style.maxHeight = '';
+  const pr = popup.getBoundingClientRect();
+  const curLeft = parseFloat(popup.style.left);
+  if (Number.isFinite(curLeft)) {
+    const left = clamp(curLeft, 8, Math.max(8, innerWidth - pr.width - 8));
+    popup.style.left = left + 'px';
+  }
+  const curTop = parseFloat(popup.style.top);
+  const topVal = Number.isFinite(curTop) ? Math.max(6, curTop) : 6;
+  popup.style.top = topVal + 'px';
+  popup.style.maxHeight = Math.max(120, innerHeight - topVal - 8) + 'px';
+  popup.scrollTop = prevScrollTop;
+}
+
 export function setPanelAnchors(anchors) {
   if (!anchors || typeof anchors !== 'object') return;
   if (typeof anchors.settingsLeft === 'number') {
     panelAnchors.settingsLeft = anchors.settingsLeft;
     lastSettingsAnchor = { left: anchors.settingsLeft };
+    const sp = $('#settings-popup');
+    if (sp?.classList.contains('active')) {
+      if (pendingSettingsAnchorSync) {
+        pendingSettingsAnchorSync = false;
+        position(sp, lastSettingsAnchor);
+      } else {
+        clampOpenPopup(sp);
+      }
+    } else {
+      pendingSettingsAnchorSync = false;
+    }
   }
   if (typeof anchors.recentLeft === 'number') {
     panelAnchors.recentLeft = anchors.recentLeft;
     lastRecentAnchor = { left: anchors.recentLeft };
+    const rp = $('#recent-popup');
+    if (rp?.classList.contains('active')) {
+      if (pendingRecentAnchorSync) {
+        pendingRecentAnchorSync = false;
+        position(rp, lastRecentAnchor);
+      } else {
+        clampOpenPopup(rp);
+      }
+    } else {
+      pendingRecentAnchorSync = false;
+    }
   }
+}
+
+function requestHostAnchors() {
+  if (window.parent === window) return;
+  try { window.parent.postMessage({ type: 'latex-request-anchors' }, '*'); } catch {}
 }
 
 function resolveAnchor(preferred, fallbackSaved, toggleEl, defaultLeft) {
@@ -80,6 +126,7 @@ export function build() {
 
 function position(popup, anchorOrPos) {
   if (!popup || !anchorOrPos) return;
+  const prevScrollTop = popup.scrollTop;
   popup.classList.add('active');
   popup.style.maxHeight = '';
   popup.style.right = 'auto';
@@ -92,6 +139,7 @@ function position(popup, anchorOrPos) {
     popup.style.left = left + 'px';
     popup.style.top = '6px';
     popup.style.maxHeight = Math.max(120, innerHeight - 14) + 'px';
+    popup.scrollTop = prevScrollTop;
     return;
   }
 
@@ -102,6 +150,7 @@ function position(popup, anchorOrPos) {
   if (below >= pr.height) popup.style.top = (r.bottom + 4) + 'px';
   else if (above > below && above >= 100) { popup.style.top = Math.max(8, r.top - pr.height - 4) + 'px'; popup.style.maxHeight = above + 'px'; }
   else { const t = Math.max(8, Math.min(r.bottom + 4, innerHeight - 150)); popup.style.top = t + 'px'; popup.style.maxHeight = Math.max(100, innerHeight - t - 8) + 'px'; }
+  popup.scrollTop = prevScrollTop;
 }
 
 function makeCell(item, click) {
@@ -173,9 +222,15 @@ export function openRecent(anchorOrPos) {
     anchorOrPos,
     lastRecentAnchor,
     $('#recent-toggle'),
-    typeof panelAnchors.recentLeft === 'number' ? panelAnchors.recentLeft : 40
+    typeof panelAnchors.recentLeft === 'number' ? panelAnchors.recentLeft : Math.max(40, innerWidth - 410)
   );
   lastRecentAnchor = resolvedAnchor;
+  if (window.parent !== window && typeof panelAnchors.recentLeft !== 'number' && !anchorOrPos) {
+    pendingRecentAnchorSync = true;
+    requestHostAnchors();
+  } else {
+    pendingRecentAnchorSync = false;
+  }
 
   popup.innerHTML = '';
   const header = document.createElement('div');
@@ -233,15 +288,22 @@ export function toggleSettingsFromPanel(anchorLeft) {
   }
   if (sp.classList.contains('active')) {
     sp.classList.remove('active');
+    pendingSettingsAnchorSync = false;
   } else {
     const resolved = resolveAnchor(
       typeof anchorLeft === 'number' ? { left: anchorLeft } : null,
       lastSettingsAnchor,
       $('#settings-toggle'),
-      typeof panelAnchors.settingsLeft === 'number' ? panelAnchors.settingsLeft : 8
+      typeof panelAnchors.settingsLeft === 'number' ? panelAnchors.settingsLeft : Math.max(8, innerWidth - 440)
     );
     lastSettingsAnchor = resolved;
     position(sp, resolved);
+    if (window.parent !== window && typeof panelAnchors.settingsLeft !== 'number' && typeof anchorLeft !== 'number') {
+      pendingSettingsAnchorSync = true;
+      requestHostAnchors();
+    } else {
+      pendingSettingsAnchorSync = false;
+    }
   }
   notifyPopupState();
 }
@@ -260,12 +322,9 @@ export function toggleRecentFromPanel(anchorLeft) {
     rp.classList.remove('active');
     notifyPopupState();
   } else {
-    const resolved = resolveAnchor(
-      typeof anchorLeft === 'number' ? { left: anchorLeft } : null,
-      lastRecentAnchor,
-      $('#recent-toggle'),
-      typeof panelAnchors.recentLeft === 'number' ? panelAnchors.recentLeft : 40
-    );
+    const resolved = typeof anchorLeft === 'number'
+      ? { left: anchorLeft }
+      : (typeof panelAnchors.recentLeft === 'number' ? { left: panelAnchors.recentLeft } : lastRecentAnchor);
     openRecent(resolved);
   }
 }
@@ -328,5 +387,15 @@ export function bind(ac) {
     if (changed) notifyPopupState();
   }, false, sig);
 
-  on(window, 'resize', () => { closeAllPopups(); }, false, sig);
+  on(window, 'resize', () => {
+    closePopup();
+    const sp = $('#settings-popup');
+    if (sp?.classList.contains('active')) {
+      clampOpenPopup(sp);
+    }
+    const rp = $('#recent-popup');
+    if (rp?.classList.contains('active')) {
+      clampOpenPopup(rp);
+    }
+  }, false, sig);
 }

@@ -1,6 +1,6 @@
 import { MSG, KEYS } from '../core/constants.js';
 import { $, on } from '../core/dom.js';
-import { state, applyTheme, applyTransparency, applyBlur, applyToolbarHidden, applyPreviewHidden } from './settings.js';
+import { state, applyTheme, applyTransparency, applyBlur, applyToolbarHidden, applyPreviewHidden, openDonatePage } from './settings.js';
 import { get, set, remove } from '../core/storage.js';
 import * as toolbar from './toolbar.js';
 import * as notepad from './notepad.js';
@@ -106,6 +106,7 @@ export function init(ac) {
         case 'toggle-settings': toolbar.toggleSettingsFromPanel(d.anchorLeft); break;
         case 'toggle-recent': toolbar.toggleRecentFromPanel(d.anchorLeft); break;
         case 'toggle-notepad': notepad.toggleNotepad(); break;
+        case 'open-donate': openDonatePage(); break;
         case 'close-popups': toolbar.closeAllPopups(); break;
         case 'focus-editor': try { window.focus(); } catch { } window.__focusActiveEditor?.(); break;
         case 'run-shortcut': window.__handlePanelShortcut?.(d); break;
@@ -126,8 +127,8 @@ export function init(ac) {
   }, false, sig);
 
   if (window.parent === window) {
-    const api = (typeof browser !== 'undefined' ? browser : chrome).runtime;
-    try { api.sendMessage({ action: MSG.INJECT_TRACKER }).catch(() => { }); } catch { }
+    const api = (typeof browser !== 'undefined' ? browser : (typeof chrome !== 'undefined' ? chrome : null))?.runtime;
+    try { api?.sendMessage?.({ action: MSG.INJECT_TRACKER })?.catch?.(() => { }); } catch { }
   }
 
   on(window, 'pagehide', flushDrafts, false, sig);

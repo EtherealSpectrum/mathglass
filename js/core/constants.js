@@ -14,6 +14,7 @@ export const KEYS = {
   alignLeft:               'latex_preview_align_left',
   previewHeight:           'latex_preview_height',
   toolbarHidden:           'latex_toolbar_hidden',
+  notepadToolbarHidden:    'latex_notepad_toolbar_hidden',
   previewHidden:           'latex_preview_hidden',
   settingsCollapsed:       'latex_settings_collapsed',
   dataset:                 'latex_toolbar_dataset',
@@ -26,6 +27,10 @@ export const KEYS = {
   notepadScaleAuto:        'latex_notepad_font_auto',
   notepadPreviewScale:     'latex_notepad_preview_scale',
   notepadPreviewScaleAuto: 'latex_notepad_preview_auto',
+  notepadToolbarScale:     'latex_notepad_toolbar_scale',
+  notepadToolbarScaleAuto: 'latex_notepad_toolbar_scale_auto',
+  headerBtnScale:          'latex_header_btn_scale',
+  headerBtnScaleAuto:      'latex_header_btn_scale_auto',
   notepadAutoDollar:       'latex_notepad_auto_dollar',
   syntaxHighlight:         'latex_syntax_highlight',
 };
@@ -47,6 +52,8 @@ export const LIMITS = {
   editor:         { min: 0.7, max: 2.0, step: 0.1 },
   notepad:        { min: 0.75, max: 2.2, step: 0.1 },
   notepadPreview: { min: 0.65, max: 2.4, step: 0.1 },
+  notepadToolbar: { min: 0.8, max: 2.0, step: 0.1 },
+  headerBtn:      { min: 0.8, max: 2.0, step: 0.1 },
   recentMax: 12,
   previewMaxRatio: 0.65,
 };

@@ -5,7 +5,7 @@ import { translateLatexErrorToGreek, translateAppErrorToGreek } from '../core/er
 import { tokenizeHybridLatex, renderPhpbbHtml } from './notepad.js';
 
 const isFirefox = typeof browser !== 'undefined' && typeof browser.runtime?.getBrowserInfo === 'function';
-const api = isFirefox ? browser : chrome;
+const api = isFirefox ? browser : (typeof chrome !== 'undefined' ? chrome : null);
 
 export function wrappedCode() {
   let code = state.ta.value;
@@ -77,31 +77,36 @@ export async function insertTextToPage(code, btn) {
   }
 }
 
-function buildExportContainer(mode, content, transparentBg) {
+function buildExportContainer(mode, content, bgMode = 'white') {
+  const isTransparent = bgMode === 'transparent';
+  const bgCss = isTransparent ? 'transparent' : '#ffffff';
+
   const temp = document.createElement('div');
-  temp.style.cssText = `position:fixed;left:-10000px;top:0;z-index:-1;pointer-events:none;background-color:${transparentBg ? 'transparent' : '#ffffff'};color:#111827;text-shadow:none;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;`;
+  temp.style.cssText = `position:fixed;left:-10000px;top:0;z-index:-1;pointer-events:none;background-color:${bgCss};color:#111827;text-shadow:none;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;`;
   if (mode === 'editor') {
     temp.style.display = 'inline-block'; temp.style.padding = '24px 28px'; temp.style.fontSize = '24px';
     try { katex.render(content.trim(), temp, { throwOnError: true, displayMode: true, fleqn: state.alignLeft }); }
     catch (e) { throw new Error(translateLatexErrorToGreek(e)); }
   } else {
     temp.className = 'phpbb-preview-body phpbb-export-root';
-    temp.setAttribute('data-export-transparent', transparentBg ? 'true' : 'false');
+    temp.setAttribute('data-export-transparent', isTransparent ? 'true' : 'false');
     temp.style.width = '720px'; temp.style.padding = '28px 32px'; temp.style.fontSize = '15px'; temp.style.lineHeight = '1.7'; temp.style.whiteSpace = 'pre-wrap'; temp.style.wordBreak = 'break-word';
     temp.innerHTML = renderPhpbbHtml(content, true);
   }
   return temp;
 }
 
-async function exportCanvas(mode, content, scale, transparentBg = false) {
-  const temp = buildExportContainer(mode, content, transparentBg);
+async function exportCanvas(mode, content, scale, bgMode = 'white') {
+  const isTransparent = bgMode === 'transparent';
+  const temp = buildExportContainer(mode, content, bgMode);
   document.body.appendChild(temp);
   try {
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     try { await document.fonts?.ready; } catch {}
     const rect = temp.getBoundingClientRect();
+    const inkColor = '#111827';
     return await html2canvas(temp, {
-      backgroundColor: transparentBg ? null : '#ffffff',
+      backgroundColor: isTransparent ? null : '#ffffff',
       scale,
       width: Math.ceil(rect.width),
       height: Math.ceil(rect.height),
@@ -117,29 +122,29 @@ async function exportCanvas(mode, content, scale, transparentBg = false) {
         cloned.querySelectorAll('*').forEach(el => { el.style.textShadow = 'none'; });
         cloned.querySelectorAll('.katex-mathml').forEach(el => { el.style.display = 'none'; });
         cloned.querySelectorAll('pre.phpbb-code, .bb-code-block').forEach(el => {
-          el.style.backgroundColor = transparentBg ? 'rgba(15, 23, 42, 0.06)' : '#f1f5f9';
+          el.style.backgroundColor = isTransparent ? 'rgba(15, 23, 42, 0.06)' : '#f1f5f9';
           el.style.color = '#0f172a';
-          el.style.borderColor = transparentBg ? 'rgba(15, 23, 42, 0.25)' : '#cbd5e1';
+          el.style.borderColor = isTransparent ? 'rgba(15, 23, 42, 0.25)' : '#cbd5e1';
           el.style.whiteSpace = 'pre-wrap';
           el.style.wordBreak = 'break-word';
           el.style.overflow = 'visible';
         });
         cloned.querySelectorAll('.phpbb-hide > summary').forEach(el => {
           el.style.backgroundColor = '#f1f5f9';
-          el.style.color = '#111827';
+          el.style.color = inkColor;
         });
         cloned.querySelectorAll('.phpbb-ggb').forEach(el => {
           el.style.backgroundColor = 'rgba(67, 56, 202, 0.08)';
           el.style.borderColor = '#4338ca';
-          el.style.color = '#111827';
+          el.style.color = inkColor;
         });
         cloned.querySelectorAll('svg').forEach(svg => {
-          if (svg.getAttribute('stroke') === 'currentColor') svg.setAttribute('stroke', '#111827');
+          if (svg.getAttribute('stroke') === 'currentColor') svg.setAttribute('stroke', inkColor);
           const f = svg.getAttribute('fill');
-          if (!f || f === 'currentColor') svg.setAttribute('fill', '#111827');
+          if (!f || f === 'currentColor') svg.setAttribute('fill', inkColor);
           svg.querySelectorAll('path, line, rect, polygon').forEach(s => {
-            if (s.getAttribute('stroke') === 'currentColor') s.setAttribute('stroke', '#111827');
-            if (s.getAttribute('fill') === 'currentColor') s.setAttribute('fill', '#111827');
+            if (s.getAttribute('stroke') === 'currentColor') s.setAttribute('stroke', inkColor);
+            if (s.getAttribute('fill') === 'currentColor') s.setAttribute('fill', inkColor);
           });
         });
       },
@@ -154,12 +159,13 @@ export async function runExport(mode, format, btn) {
   const baseName = mode === 'editor' ? 'latex-equation' : 'latex-notepad';
   try {
     if (format === 'png' || format === 'png-transparent') {
-      const canvas = await exportCanvas(mode, raw, 3, format === 'png-transparent');
+      const bgMode = format === 'png-transparent' ? 'transparent' : 'white';
+      const canvas = await exportCanvas(mode, raw, 3, bgMode);
       const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
       triggerDownload(blob, `${baseName}.png`);
       if (btn) feedback(btn, 'Έτοιμο!', '#4caf50');
     } else if (format === 'pdf') {
-      const canvas = await exportCanvas(mode, raw, 3, false);
+      const canvas = await exportCanvas(mode, raw, 3, 'white');
       const pxToPt = 72 / 96;
       const cw = (canvas.width / 3) * pxToPt, ch = (canvas.height / 3) * pxToPt;
       const doc = new window.jspdf.jsPDF({ orientation: cw > ch ? 'landscape' : 'portrait', unit: 'pt', format: [Math.max(120, cw + 48), Math.max(80, ch + 48)] });

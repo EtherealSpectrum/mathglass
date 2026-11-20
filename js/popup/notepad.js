@@ -2,12 +2,16 @@ import { KEYS, MSG } from '../core/constants.js';
 import { $, on, clamp, rafThrottle } from '../core/dom.js';
 import { get, set, mirrorGet, mirrorSet } from '../core/storage.js';
 import { translateLatexErrorToGreek } from '../core/errors.js';
+import { computeCtrlArrowTarget, extractAllMathRangesForNav } from '../core/latex-nav.js';
+import { resolveLatexOffsetAtPoint, caretPointFromXY, getTextOffsetInElement } from '../core/latex-click.js';
 import { state } from './settings.js';
 import {
   renderPartialLatexHtml,
   renderLatexWithCaret,
   findCaretElement,
   markCaretElement,
+  injectLatexCaret,
+  buildBalancedCandidate,
 } from './preview.js';
 import { wrappedCode, copyText, insertTextToPage } from './actions.js';
 
@@ -21,8 +25,11 @@ let lastRenderedSrc = null;
 let lastRenderedTheme = null;
 let activeMathEl = null;
 const cleanMathHtmlMap = new WeakMap();
+const mathHtmlCache = new Map();
 
 const POS_MARK_RE = /\uFFF0POS:(\d+)\uFFF1/g;
+const CARET_MARK = '\uFFF2CARET\uFFF3';
+const CARET_MARK_RE = /\uFFF2CARET\uFFF3/g;
 
 export function isNotepadOpen() { return notepadOpen; }
 export function isAutoDollarWrapEnabled() { return autoDollarWrap; }
@@ -52,10 +59,14 @@ export function setNotepadOpen(open) {
   if (notepadOpen) {
     $('#settings-popup')?.classList.remove('active');
     $('#recent-popup')?.classList.remove('active');
-    state.notepadUserScrolled = false;
-    renderHybridPreview(true);
-    requestAnimationFrame(() => { const np = $('#notepad-input'); try { np?.focus({ preventScroll: true }); } catch { np?.focus(); } });
+    renderHybridPreview(true, false);
+    requestAnimationFrame(() => {
+      const np = $('#notepad-input');
+      try { np?.focus({ preventScroll: true }); } catch { np?.focus(); }
+      window.__refreshNotepadCaret?.();
+    });
   } else {
+    window.__refreshNotepadCaret?.();
     requestAnimationFrame(() => { const lx = $('#latex-input'); try { lx?.focus({ preventScroll: true }); } catch { lx?.focus(); } });
   }
   notifyState();
@@ -278,19 +289,48 @@ function escHtml(s) {
 }
 
 function stripPosMarkers(str) {
-  return String(str).replace(POS_MARK_RE, '');
+  return String(str).replace(POS_MARK_RE, '').replace(CARET_MARK_RE, '');
 }
 
-function annotateTextOffsets(rawText, baseOffset) {
-  let out = `\uFFF0POS:${baseOffset}\uFFF1`;
-  let last = 0;
-  for (let i = 0; i < rawText.length; i++) {
-    if (rawText[i] === '\n') {
-      out += rawText.slice(last, i + 1) + `\uFFF0POS:${baseOffset + i + 1}\uFFF1`;
-      last = i + 1;
+const BBCODE_SPAN_RE = /\[(?:\/?(?:b|i|u|s|quote|code|list|img|url|size|color|center|ggb|hide|table|tr|th|td)|\*)(?:=[^\]]*)?\]/gi;
+
+function safePlainCaretOffset(rawText, localPos) {
+  let pos = Math.max(0, Math.min(rawText.length, localPos));
+  BBCODE_SPAN_RE.lastIndex = 0;
+  let m;
+  while ((m = BBCODE_SPAN_RE.exec(rawText)) !== null) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (pos > start && pos < end) {
+      pos = m[0].startsWith('[/') ? start : end;
+      break;
     }
   }
-  out += rawText.slice(last);
+  if (pos > 0 && pos < rawText.length && rawText[pos - 1] === '\\' && rawText[pos] === '$') {
+    pos++;
+  }
+  return pos;
+}
+
+function annotateTextOffsets(rawText, baseOffset, localCaretOffset = null) {
+  const safeCaret = typeof localCaretOffset === 'number' ? safePlainCaretOffset(rawText, localCaretOffset) : null;
+  const markBefore = new Set([0]);
+  for (let i = 0; i < rawText.length; i++) {
+    if (rawText[i] === '\n') markBefore.add(i + 1);
+    else if (rawText[i] === '\\' && rawText[i + 1] === '$') markBefore.add(i + 2);
+  }
+  BBCODE_SPAN_RE.lastIndex = 0;
+  let m;
+  while ((m = BBCODE_SPAN_RE.exec(rawText)) !== null) {
+    markBefore.add(m.index + m[0].length);
+  }
+
+  let out = '';
+  for (let i = 0; i <= rawText.length; i++) {
+    if (markBefore.has(i)) out += `\uFFF0POS:${baseOffset + i}\uFFF1`;
+    if (safeCaret === i) out += CARET_MARK;
+    if (i < rawText.length) out += rawText[i];
+  }
   return out;
 }
 
@@ -326,20 +366,31 @@ function renderSingleMathInner(rawMath, displayMode, isLight, cursorOffset = nul
     return `<span class="np-math-error" title="${errTitle}">${res.html}</span>`;
   }
 
+  const cacheKey = `${displayMode ? '1' : '0'}:${isLight ? 'L' : 'D'}:${inner}`;
+  const cached = mathHtmlCache.get(cacheKey);
+  if (typeof cached === 'string') return cached;
+
+  let html;
   try {
-    return katex.renderToString(inner, {
+    html = katex.renderToString(inner, {
       throwOnError: true,
       displayMode,
     });
   } catch (err) {
     const errTitle = escHtml(translateLatexErrorToGreek(err));
     const partial = renderPartialLatexHtml(inner, err, false, displayMode, isLight);
-    return `<span class="np-math-error" title="${errTitle}">${partial}</span>`;
+    html = `<span class="np-math-error" title="${errTitle}">${partial}</span>`;
   }
+  if (mathHtmlCache.size > 250) {
+    const oldest = mathHtmlCache.keys().next().value;
+    mathHtmlCache.delete(oldest);
+  }
+  mathHtmlCache.set(cacheKey, html);
+  return html;
 }
 
 export function renderPhpbbHtml(input, isLight, options = {}) {
-  const { trackCursor = false } = options;
+  const { trackCursor = false, caretOffset = null } = options;
   const tokens = tokenizeHybridLatex(input);
   const slots = [];
   let combined = '';
@@ -347,10 +398,22 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
   for (const tok of tokens) {
     if (tok.type === 'code') {
       const idx = slots.length;
-      slots.push(`<pre class="phpbb-code" data-np-start="${tok.start}" data-np-end="${tok.end}">${escHtml(tok.content.trim())}</pre>`);
+      const trimmed = tok.content.trim();
+      let codeInnerHtml = escHtml(trimmed);
+      if (trackCursor && typeof caretOffset === 'number' && caretOffset >= tok.start && caretOffset <= tok.end) {
+        const leadWs = tok.content.length - tok.content.trimStart().length;
+        const innerCaret = clamp(caretOffset - (tok.start + 6) - leadWs, 0, trimmed.length);
+        codeInnerHtml = escHtml(trimmed.slice(0, innerCaret)) + CARET_MARK + escHtml(trimmed.slice(innerCaret));
+      }
+      slots.push(`<pre class="phpbb-code" data-np-start="${tok.start}" data-np-end="${tok.end}">${codeInnerHtml}</pre>`);
       combined += `@@NP_SLOT_${idx}@@`;
     } else if (tok.type === 'text') {
-      const textWithMarkers = trackCursor ? annotateTextOffsets(tok.content, tok.start) : tok.content;
+      const localCaret = (trackCursor && typeof caretOffset === 'number' && caretOffset >= tok.start && caretOffset <= tok.end)
+        ? (caretOffset - tok.start)
+        : null;
+      const textWithMarkers = trackCursor
+        ? annotateTextOffsets(tok.content, tok.start, localCaret)
+        : tok.content;
       combined += escHtml(textWithMarkers.replace(/\\\$/g, '$'));
     } else {
       const idx = slots.length;
@@ -394,14 +457,22 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
     return `<a href="${cleanHref}" target="_blank" rel="noopener noreferrer">${label}</a>`;
   });
   html = html.replace(/\[url\]((?:https?:\/\/|mailto:)[^\[]+)\[\/url\]/gi, (_, href) => {
+    const hadCaret = CARET_MARK_RE.test(href);
+    CARET_MARK_RE.lastIndex = 0;
     const cleanHref = stripPosMarkers(href).trim();
-    return `<a href="${cleanHref}" target="_blank" rel="noopener noreferrer">${cleanHref}</a>`;
+    return `<a href="${cleanHref}" target="_blank" rel="noopener noreferrer">${cleanHref}</a>${hadCaret ? CARET_MARK : ''}`;
   });
   html = html.replace(/\[img\](https?:\/\/[^\[]+)\[\/img\]/gi, (_, src) => {
+    const hadCaret = CARET_MARK_RE.test(src);
+    CARET_MARK_RE.lastIndex = 0;
     const cleanSrc = stripPosMarkers(src).trim();
-    return `<img src="${cleanSrc}" alt="Εικόνα phpBB" loading="lazy">`;
+    return `<img src="${cleanSrc}" alt="Εικόνα phpBB" loading="lazy">${hadCaret ? CARET_MARK : ''}`;
   });
-  html = html.replace(/\[ggb\]([\s\S]*?)\[\/ggb\]/gi, (_, id) => `<div class="phpbb-ggb">📐 GeoGebra: <b>${stripPosMarkers(id).trim()}</b></div>`);
+  html = html.replace(/\[ggb\]([\s\S]*?)\[\/ggb\]/gi, (_, id) => {
+    const hadCaret = CARET_MARK_RE.test(id);
+    CARET_MARK_RE.lastIndex = 0;
+    return `<div class="phpbb-ggb">📐 GeoGebra: <b>${stripPosMarkers(id).trim()}</b></div>${hadCaret ? CARET_MARK : ''}`;
+  });
 
   html = replaceNestedTag(
     html,
@@ -436,8 +507,8 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
       .replace(/\[tr\]/gi, '<tr>').replace(/\[\/tr\]/gi, '</tr>')
       .replace(/\[th\]/gi, '<th>').replace(/\[\/th\]/gi, '</th>')
       .replace(/\[td\]/gi, '<td>').replace(/\[\/td\]/gi, '</td>');
-    clean = clean.replace(/(<\/?(?:tr|table)[^>]*>)\s*(?:\uFFF0POS:\d+\uFFF1|\s)+(?=<\/?(?:tr|th|td|table))/gi, '$1');
-    clean = clean.replace(/^(?:\uFFF0POS:\d+\uFFF1|\s)+(?=<tr)/i, '');
+    clean = clean.replace(/(<\/?(?:tr|table)[^>]*>)\s*(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3|\s)+(?=<\/?(?:tr|th|td|table))/gi, '$1');
+    clean = clean.replace(/^(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3|\s)+(?=<tr)/i, '');
     return `<table class="phpbb-table">${clean}</table>`;
   });
 
@@ -447,7 +518,7 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
     const chunks = inner.split(/\[\*\]/i);
     let itemsHtml = '';
     if (chunks.length > 1) {
-      const validChunks = chunks.slice(1).map(s => s.trim()).filter(s => stripPosMarkers(s).length > 0 || s.includes('\uFFF0POS:'));
+      const validChunks = chunks.slice(1).map(s => s.trim()).filter(s => stripPosMarkers(s).length > 0 || s.includes('\uFFF0POS:') || s.includes(CARET_MARK));
       itemsHtml = validChunks.map(p => `<li>${p}</li>`).join('');
     } else {
       itemsHtml = `<li>${inner.trim()}</li>`;
@@ -457,13 +528,15 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
 
   html = html.replace(/@@NP_SLOT_(\d+)@@/g, (_, idx) => slots[Number(idx)] || '');
 
-  html = html.replace(/\r?\n(?=(?:\uFFF0POS:\d+\uFFF1)*<(?:div class="(?:np-math-display|phpbb-ggb|phpbb-center)"|blockquote\b|pre class="phpbb-code"|details class="phpbb-hide"|ul\b|ol\b|table class="phpbb-table"))/g, '');
-  html = html.replace(/(<\/(?:div|blockquote|pre|details|ul|ol|table)>)(?:\r?\n)/g, '$1');
+  html = html.replace(/\r?\n(?=(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3)*<(?:div class="(?:np-math-display|phpbb-ggb|phpbb-center)"|blockquote\b|pre class="phpbb-code"|details class="phpbb-hide"|ul\b|ol\b|table class="phpbb-table"))/g, '');
+  html = html.replace(/(<\/(?:div|blockquote|pre|details|ul|ol|table)>(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3)*)(?:\r?\n)/g, '$1');
 
   if (trackCursor) {
     html = html.replace(POS_MARK_RE, '<span class="np-pos" data-pos="$1" aria-hidden="true"></span>');
+    html = html.replace(CARET_MARK_RE, typeof caretOffset === 'number' ? '<span class="mg-np-text-caret" aria-hidden="true"></span>' : '');
   } else {
     html = html.replace(POS_MARK_RE, '');
+    html = html.replace(CARET_MARK_RE, '');
   }
 
   return html;
@@ -485,6 +558,116 @@ function findBestPosAnchor(previewEl, cursorPos) {
     }
   }
   return best;
+}
+
+function resolvePlainClickOffset(previewEl, src, clickX, clickY, clickTarget) {
+  if (!previewEl || !src) return 0;
+
+  const preEl = clickTarget?.closest?.('pre.phpbb-code[data-np-start][data-np-end]');
+  if (preEl && previewEl.contains(preEl)) {
+    const tokStart = Number(preEl.getAttribute('data-np-start'));
+    const tokEnd = Number(preEl.getAttribute('data-np-end'));
+    const rawInner = src.slice(tokStart + 6, tokEnd - 7);
+    const leadWs = rawInner.length - rawInner.trimStart().length;
+    const cp = caretPointFromXY(clickX, clickY);
+    const charOff = (cp && preEl.contains(cp.node))
+      ? getTextOffsetInElement(preEl, cp.node, cp.offset)
+      : rawInner.trim().length;
+    return clamp(tokStart + 6 + leadWs + charOff, tokStart, tokEnd);
+  }
+
+  const cp = caretPointFromXY(clickX, clickY);
+  if (!cp || !previewEl.contains(cp.node)) {
+    const lastEl = previewEl.lastElementChild;
+    if (lastEl && clickY > lastEl.getBoundingClientRect().bottom) return src.length;
+    return src.length;
+  }
+
+  let basePos = 0;
+  let delta = '';
+  let done = false;
+  let fixedResult = null;
+
+  const walk = node => {
+    if (done || !node) return;
+
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node;
+      if (el.classList.contains('mg-np-text-caret')) return;
+      if (el.classList.contains('np-pos')) {
+        const p = Number(el.getAttribute('data-pos'));
+        if (!Number.isNaN(p)) {
+          basePos = p;
+          delta = '';
+        }
+        if (el === cp.node) done = true;
+        return;
+      }
+      if (
+        el.classList.contains('np-math-display') ||
+        el.classList.contains('np-math-inline') ||
+        el.classList.contains('phpbb-code')
+      ) {
+        const endAttr = Number(el.getAttribute('data-np-end'));
+        if (el === cp.node || el.contains(cp.node)) {
+          if (!Number.isNaN(endAttr)) fixedResult = endAttr;
+          done = true;
+          return;
+        }
+        if (!Number.isNaN(endAttr)) {
+          basePos = endAttr;
+          delta = '';
+        }
+        return;
+      }
+
+      if (el === cp.node) {
+        const lim = Math.min(cp.offset, el.childNodes.length);
+        for (let i = 0; i < lim && !done; i++) {
+          walk(el.childNodes[i]);
+        }
+        done = true;
+        return;
+      }
+
+      for (let i = 0; i < el.childNodes.length && !done; i++) {
+        walk(el.childNodes[i]);
+      }
+      return;
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (node === cp.node) {
+        delta += node.nodeValue.slice(0, cp.offset);
+        done = true;
+      } else {
+        delta += node.nodeValue;
+      }
+    }
+  };
+
+  walk(previewEl);
+  if (typeof fixedResult === 'number') {
+    return clamp(fixedResult, 0, src.length);
+  }
+
+  let si = clamp(basePos, 0, src.length);
+  for (let ri = 0; ri < delta.length && si < src.length; ri++) {
+    const ch = delta[ri];
+    if (src.slice(si, si + 2) === '\\$' && ch === '$') {
+      si += 2;
+    } else if (src[si] === ch) {
+      si += 1;
+    } else if (/\s/.test(src[si])) {
+      let k = si;
+      while (k < src.length && k - si < 12 && /\s/.test(src[k]) && src[k] !== ch) k++;
+      if (src[k] === ch) si = k + 1;
+      else si += 1;
+    } else {
+      si += 1;
+    }
+  }
+  return clamp(si, 0, src.length);
 }
 
 function scrollRectIntoWrap(previewWrap, rect, padX = 28, padY = 18) {
@@ -520,7 +703,18 @@ function restoreActiveMathBlock() {
   activeMathEl = null;
 }
 
-function updateNotepadCursorTracking(shouldScroll) {
+function findMatchedMathBlock(previewEl, cursorPos) {
+  const blocks = previewEl.querySelectorAll('[data-np-cstart][data-np-cend]');
+  for (const b of blocks) {
+    if (b.classList.contains('phpbb-code')) continue;
+    const cs = Number(b.getAttribute('data-np-cstart'));
+    const ce = Number(b.getAttribute('data-np-cend'));
+    if (cursorPos >= cs && cursorPos <= ce) return b;
+  }
+  return null;
+}
+
+function updateNotepadCursorTracking(shouldScroll = false) {
   const inputEl = $('#notepad-input');
   const previewWrap = $('#notepad-preview-wrap');
   const previewEl = $('#notepad-preview');
@@ -530,10 +724,12 @@ function updateNotepadCursorTracking(shouldScroll) {
   const cursorPos = getActiveCursorPos(inputEl);
   lastCursorPos = cursorPos;
   const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const prevWrapLeft = previewWrap.scrollLeft;
+  const prevWrapTop = previewWrap.scrollTop;
 
   if (!src.trim()) {
     restoreActiveMathBlock();
-    lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+    lastProgWrap = { left: prevWrapLeft, top: prevWrapTop };
     return;
   }
 
@@ -558,9 +754,11 @@ function updateNotepadCursorTracking(shouldScroll) {
 
   let caretEl = null;
   if (matchedMath) {
+    previewEl.querySelectorAll('.mg-np-text-caret').forEach(el => el.remove());
     const cs = Number(matchedMath.getAttribute('data-np-cstart'));
     const ce = Number(matchedMath.getAttribute('data-np-cend'));
     const rawMath = src.slice(cs, ce);
+    const prevMathLeft = matchedMath.scrollLeft;
     if (rawMath.trim()) {
       if (!cleanMathHtmlMap.has(matchedMath)) {
         cleanMathHtmlMap.set(matchedMath, matchedMath.innerHTML);
@@ -571,10 +769,20 @@ function updateNotepadCursorTracking(shouldScroll) {
     }
     matchedMath.classList.add('np-math-active');
     activeMathEl = matchedMath;
+    if (!shouldScroll) {
+      progScrolling = true;
+      matchedMath.scrollLeft = prevMathLeft;
+      lastProgMath = { el: matchedMath, left: matchedMath.scrollLeft };
+      requestAnimationFrame(() => { progScrolling = false; });
+    }
   }
 
   if (!shouldScroll || state.notepadUserScrolled || document.body.classList.contains('notepad-reader-mode')) {
+    progScrolling = true;
+    previewWrap.scrollLeft = prevWrapLeft;
+    previewWrap.scrollTop = prevWrapTop;
     lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+    requestAnimationFrame(() => { progScrolling = false; });
     return;
   }
 
@@ -612,7 +820,23 @@ function updateNotepadCursorTracking(shouldScroll) {
         det.open = true;
         det = det.parentElement?.closest('details.phpbb-hide');
       }
-      scrollRectIntoWrap(previewWrap, matchedCode.getBoundingClientRect(), 24, 18);
+      const textCaret = matchedCode.querySelector('.mg-np-text-caret');
+      scrollRectIntoWrap(previewWrap, (textCaret || matchedCode).getBoundingClientRect(), 24, 18);
+      return;
+    }
+
+    const textCaret = previewEl.querySelector('.mg-np-text-caret');
+    if (textCaret) {
+      let det = textCaret.closest('.phpbb-hide-body')?.closest('details.phpbb-hide');
+      while (det) {
+        det.open = true;
+        det = det.parentElement?.closest('details.phpbb-hide');
+      }
+      if (!src.slice(cursorPos).trim() && previewWrap.scrollHeight > previewWrap.clientHeight) {
+        previewWrap.scrollTop = previewWrap.scrollHeight;
+      } else {
+        scrollRectIntoWrap(previewWrap, textCaret.getBoundingClientRect(), 24, 18);
+      }
       return;
     }
 
@@ -636,17 +860,21 @@ function updateNotepadCursorTracking(shouldScroll) {
   }
 }
 
-export function renderHybridPreview(force = false) {
+export function renderHybridPreview(force = false, shouldScroll = false) {
   const inputEl = $('#notepad-input');
   const previewEl = $('#notepad-preview');
   const previewWrap = $('#notepad-preview-wrap');
   if (!inputEl || !previewEl) return;
 
   const src = inputEl.value;
+  const cursorPos = getActiveCursorPos(inputEl);
   const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const follow = Boolean(shouldScroll) && !state.notepadUserScrolled;
+  const prevWrapLeft = previewWrap ? previewWrap.scrollLeft : 0;
+  const prevWrapTop = previewWrap ? previewWrap.scrollTop : 0;
 
   if (!force && src === lastRenderedSrc && isLight === lastRenderedTheme) {
-    updateNotepadCursorTracking(!state.notepadUserScrolled);
+    updateNotepadCursorTracking(follow);
     return;
   }
 
@@ -664,7 +892,7 @@ export function renderHybridPreview(force = false) {
     if (!src.trim()) {
       previewEl.innerHTML = '<span class="np-placeholder">Η υβριδική προεπισκόπηση (phpBB + KaTeX) θα εμφανιστεί εδώ…</span>';
     } else {
-      previewEl.innerHTML = renderPhpbbHtml(src, isLight, { trackCursor: true });
+      previewEl.innerHTML = renderPhpbbHtml(src, isLight, { trackCursor: true, caretOffset: cursorPos });
       if (openSummaries.size) {
         previewEl.querySelectorAll('details.phpbb-hide > summary').forEach((sum, idx) => {
           if (openSummaries.has(`${idx}:${sum.textContent}`)) {
@@ -673,6 +901,10 @@ export function renderHybridPreview(force = false) {
         });
       }
     }
+    if (previewWrap && !follow) {
+      previewWrap.scrollLeft = prevWrapLeft;
+      previewWrap.scrollTop = prevWrapTop;
+    }
   } finally {
     if (previewWrap) lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
     requestAnimationFrame(() => { progScrolling = false; });
@@ -680,7 +912,7 @@ export function renderHybridPreview(force = false) {
 
   window.__refreshNotepadCounter?.();
 
-  requestAnimationFrame(() => updateNotepadCursorTracking(!state.notepadUserScrolled));
+  requestAnimationFrame(() => updateNotepadCursorTracking(follow));
 }
 
 function wrapInNotepad(before, after, fallback = '') {
@@ -701,8 +933,9 @@ function wrapInNotepad(before, after, fallback = '') {
     ta.setSelectionRange(s + text.length, s + text.length);
   }
   state.notepadUserScrolled = false;
-  renderHybridPreview(true);
+  renderHybridPreview(true, true);
   window.__refreshSyntaxHighlight?.();
+  window.__refreshNotepadCaret?.();
   set(KEYS.notepadText, ta.value);
 }
 
@@ -722,8 +955,13 @@ export function init(ac) {
   const rz = $('#notepad-resizer');
   if (!ta || !pvOuter) return;
 
-  window.__renderHybridPreview = renderHybridPreview;
-  const render = rafThrottle(() => renderHybridPreview());
+  window.__renderHybridPreview = (force = false, shouldScroll = false) => renderHybridPreview(force, shouldScroll);
+  let pendingScroll = false;
+  const flushRender = rafThrottle(() => {
+    const shouldScroll = pendingScroll;
+    pendingScroll = false;
+    renderHybridPreview(false, shouldScroll);
+  });
   let saveTimer = null;
   const scheduleSave = () => {
     clearTimeout(saveTimer);
@@ -758,8 +996,9 @@ export function init(ac) {
     }
     if (typeof r[KEYS.notepadText] === 'string' && !ta.value) {
       ta.value = r[KEYS.notepadText];
-      renderHybridPreview(true);
+      renderHybridPreview(true, false);
       window.__refreshSyntaxHighlight?.();
+      window.__refreshNotepadCaret?.();
     }
     if (typeof r[KEYS.notepadHeight] === 'number') {
       applySavedNotepadHeight(r[KEYS.notepadHeight]);
@@ -776,16 +1015,53 @@ export function init(ac) {
 
   on(ta, 'input', () => {
     state.notepadUserScrolled = false;
-    render();
+    pendingScroll = true;
+    flushRender();
     scheduleSave();
   }, false, sig);
 
   const syncCursorMove = rafThrottle(() => {
+    if (pendingScroll) return;
     const pos = getActiveCursorPos(ta);
-    if (pos === lastCursorPos && ta.value === lastRenderedSrc) return;
-    state.notepadUserScrolled = false;
-    updateNotepadCursorTracking(true);
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    if (pos === lastCursorPos && ta.value === lastRenderedSrc && isLight === lastRenderedTheme) return;
+
+    const matchedMath = previewEl ? findMatchedMathBlock(previewEl, pos) : null;
+    const prevWasMath = Boolean(activeMathEl && activeMathEl.isConnected);
+    if (matchedMath && ta.value === lastRenderedSrc && isLight === lastRenderedTheme) {
+      updateNotepadCursorTracking(false);
+    } else if (prevWasMath && !matchedMath && ta.value === lastRenderedSrc && isLight === lastRenderedTheme) {
+      renderHybridPreview(true, false);
+    } else {
+      renderHybridPreview(true, false);
+    }
   });
+
+  on(ta, 'keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      const dir = e.key === 'ArrowRight' ? 1 : -1;
+      const caretPos = getActiveCursorPos(ta);
+      const mathRanges = extractAllMathRangesForNav(tokenizeHybridLatex(ta.value));
+      const target = computeCtrlArrowTarget(ta.value, caretPos, dir, mathRanges);
+      if (target !== null && target !== caretPos) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          const anchor = ta.selectionDirection === 'backward' ? ta.selectionEnd : ta.selectionStart;
+          const start = Math.min(anchor, target);
+          const end = Math.max(anchor, target);
+          const selDir = target < anchor ? 'backward' : 'forward';
+          ta.setSelectionRange(start, end, selDir);
+        } else {
+          ta.setSelectionRange(target, target);
+        }
+        lastCursorPos = -1;
+        syncCursorMove();
+        window.__ensureNotepadCaretVisible?.();
+        window.__refreshNotepadCaret?.();
+      }
+    }
+  }, false, sig);
+
   on(ta, 'keyup', syncCursorMove, false, sig);
   on(ta, 'mouseup', syncCursorMove, false, sig);
   on(ta, 'click', syncCursorMove, false, sig);
@@ -796,7 +1072,64 @@ export function init(ac) {
 
   on(window, 'pagehide', () => set(KEYS.notepadText, ta.value), false, sig);
 
-  if (previewWrap) {
+  if (previewWrap && previewEl) {
+    on(previewWrap, 'click', e => {
+      if (document.body.classList.contains('notepad-reader-mode')) return;
+      if (e.target.closest('a, summary, button, input, select, textarea, .notepad-preview-controls')) return;
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().length > 0) return;
+
+      const src = ta.value || '';
+      if (!src.trim()) {
+        try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
+        return;
+      }
+
+      const prevWrapTop = previewWrap.scrollTop;
+      const prevWrapLeft = previewWrap.scrollLeft;
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      const mathEl = e.target.closest('.np-math-display[data-np-cstart][data-np-cend], .np-math-inline[data-np-cstart][data-np-cend]');
+      const prevMathLeft = mathEl ? mathEl.scrollLeft : 0;
+
+      let targetPos;
+      if (mathEl && previewEl.contains(mathEl)) {
+        const cs = Number(mathEl.getAttribute('data-np-cstart'));
+        const ce = Number(mathEl.getAttribute('data-np-cend'));
+        const disp = mathEl.getAttribute('data-np-display') === '1';
+        const rawMath = src.slice(cs, ce);
+        const localOff = resolveLatexOffsetAtPoint(rawMath, e.clientX, e.clientY, mathEl, {
+          displayMode: disp,
+          alignLeft: false,
+          isLight,
+          clickTarget: e.target,
+          buildBalancedCandidate,
+          injectLatexCaret,
+          findCaretElement,
+        });
+        targetPos = clamp(cs + localOff, 0, src.length);
+      } else {
+        targetPos = resolvePlainClickOffset(previewEl, src, e.clientX, e.clientY, e.target);
+      }
+
+      try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
+      ta.setSelectionRange(targetPos, targetPos);
+      lastCursorPos = -1;
+      renderHybridPreview(!mathEl, false);
+      if (mathEl && mathEl.isConnected) {
+        progScrolling = true;
+        mathEl.scrollLeft = prevMathLeft;
+        lastProgMath = { el: mathEl, left: mathEl.scrollLeft };
+      }
+      progScrolling = true;
+      previewWrap.scrollTop = prevWrapTop;
+      previewWrap.scrollLeft = prevWrapLeft;
+      lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+      requestAnimationFrame(() => { progScrolling = false; });
+
+      window.__ensureNotepadCaretVisible?.();
+      window.__refreshNotepadCaret?.(true);
+    }, false, sig);
+
     on(previewWrap, 'wheel', e => {
       if (e.ctrlKey || e.metaKey) return;
       if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
@@ -915,8 +1248,9 @@ export function init(ac) {
       try { ok = document.execCommand('insertText', false, cleanedAll); } catch { }
       if (!ok) ta.value = cleanedAll;
       state.notepadUserScrolled = false;
-      renderHybridPreview(true);
+      renderHybridPreview(true, true);
       window.__refreshSyntaxHighlight?.();
+      window.__refreshNotepadCaret?.();
       set(KEYS.notepadText, ta.value);
     }
   }, false, sig);
@@ -973,8 +1307,9 @@ export function init(ac) {
       ta.focus(); ta.select();
       try { document.execCommand('insertText', false, ''); } catch { ta.value = ''; }
       state.notepadUserScrolled = false;
-      renderHybridPreview(true);
+      renderHybridPreview(true, true);
       window.__refreshSyntaxHighlight?.();
+      window.__refreshNotepadCaret?.();
       set(KEYS.notepadText, '');
     }, false, sig);
   }

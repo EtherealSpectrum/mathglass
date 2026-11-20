@@ -2,6 +2,7 @@ import { KEYS } from '../core/constants.js';
 import { $, on, clamp, rafThrottle } from '../core/dom.js';
 import { computeAutoScale } from '../core/scale.js';
 import { translateLatexErrorToGreek } from '../core/errors.js';
+import { resolveLatexOffsetAtPoint } from '../core/latex-click.js';
 import { get, set, mirrorGet, mirrorSet } from '../core/storage.js';
 import { state, setSize } from './settings.js';
 
@@ -170,7 +171,7 @@ export function markCaretElement(root) {
     return el;
 }
 
-function buildBalancedCandidate(trimmed, errorColor) {
+export function buildBalancedCandidate(trimmed, errorColor) {
     let s = trimmed;
     const ghost = `{\\color{${errorColor}}{\\square}}`;
 
@@ -413,13 +414,15 @@ export function renderLatexWithCaret(rawMath, cursorOffset, alignLeft, displayMo
     }
 }
 
-export function render() {
+export function render(shouldScroll = false) {
     if (!state.ta || !state.preview || !state.previewWrap) return;
     const raw = state.ta.value;
     const src = raw.trim();
     const cursorPos = getActiveCursorPos(state.ta);
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    const follow = !state.userScrolled;
+    const follow = Boolean(shouldScroll) && !state.userScrolled;
+    const prevScrollLeft = state.previewWrap.scrollLeft;
+    const prevScrollTop = state.previewWrap.scrollTop;
 
     lastRenderedSrc = raw;
     lastRenderedAlign = state.alignLeft;
@@ -456,6 +459,10 @@ export function render() {
                 state.preview.appendChild(errDiv);
             }
             markCaretElement(state.preview);
+        }
+        if (!follow) {
+            state.previewWrap.scrollLeft = prevScrollLeft;
+            state.previewWrap.scrollTop = prevScrollTop;
         }
     } finally {
         lastProg = { left: state.previewWrap.scrollLeft, top: state.previewWrap.scrollTop };
@@ -579,8 +586,7 @@ export function syncCursor() {
         state.alignLeft !== lastRenderedAlign ||
         (document.documentElement.getAttribute('data-theme') === 'light') !== lastRenderedTheme;
     if (!changed) return;
-    state.userScrolled = false;
-    render();
+    render(false);
 }
 
 function measureMinHeight() {
@@ -599,10 +605,91 @@ function measureMinHeight() {
     });
 }
 
+function ensureTextareaOffsetVisible(ta, pos) {
+    if (!ta) return;
+    const cs = getComputedStyle(ta);
+    const mirror = document.createElement('div');
+    mirror.style.cssText = 'position:fixed;left:-99999px;top:0;visibility:hidden;pointer-events:none;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;box-sizing:border-box;overflow:hidden;';
+    mirror.style.width = ta.clientWidth + 'px';
+    mirror.style.fontFamily = cs.fontFamily;
+    mirror.style.fontSize = cs.fontSize;
+    mirror.style.fontWeight = cs.fontWeight;
+    mirror.style.lineHeight = cs.lineHeight;
+    mirror.style.letterSpacing = cs.letterSpacing;
+    mirror.style.padding = cs.padding;
+    mirror.style.border = cs.border;
+
+    const val = (ta.value || '').replace(/\r\n?/g, '\n');
+    const p = clamp(pos, 0, val.length);
+    const before = document.createTextNode(val.slice(0, p));
+    const marker = document.createElement('span');
+    marker.textContent = '\u200b';
+    const after = document.createTextNode(val.slice(p) || ' ');
+    mirror.append(before, marker, after);
+    document.body.appendChild(mirror);
+    try {
+        const mRect = mirror.getBoundingClientRect();
+        const r = marker.getBoundingClientRect();
+        const relTop = r.top - mRect.top;
+        const padTop = parseFloat(cs.paddingTop) || 8;
+        const padBottom = parseFloat(cs.paddingBottom) || 8;
+        const h = Math.max(14, r.height || parseFloat(cs.fontSize) || 16);
+        const maxTop = Math.max(0, ta.scrollHeight - ta.clientHeight);
+        if (relTop < ta.scrollTop + padTop) {
+            ta.scrollTop = clamp(relTop - padTop - 4, 0, maxTop);
+        } else if (relTop + h > ta.scrollTop + ta.clientHeight - padBottom) {
+            ta.scrollTop = clamp(relTop + h - ta.clientHeight + padBottom + 4, 0, maxTop);
+        }
+        const hl = $('#latex-highlight');
+        if (hl) {
+            hl.scrollTop = ta.scrollTop;
+            hl.scrollLeft = ta.scrollLeft;
+        }
+    } finally {
+        mirror.remove();
+    }
+}
+
 export function init(ac) {
     const sig = ac.signal;
-    window.__renderPreview = render;
+    window.__renderPreview = (shouldScroll = false) => render(shouldScroll);
     window.__syncPreviewCursor = syncCursor;
+
+    on(state.previewWrap, 'click', e => {
+        if (!state.ta || !state.preview) return;
+        if (e.target.closest('.preview-controls, .preview-error-msg, button, a')) return;
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed && sel.toString().length > 0) return;
+
+        const prevTop = state.previewWrap.scrollTop;
+        const prevLeft = state.previewWrap.scrollLeft;
+        const raw = state.ta.value || '';
+
+        if (!raw.trim()) {
+            try { state.ta.focus({ preventScroll: true }); } catch { state.ta.focus(); }
+            return;
+        }
+
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        const pos = resolveLatexOffsetAtPoint(raw, e.clientX, e.clientY, state.preview, {
+            displayMode: true,
+            alignLeft: state.alignLeft,
+            isLight,
+            clickTarget: e.target,
+            buildBalancedCandidate,
+            injectLatexCaret,
+            findCaretElement,
+        });
+
+        try { state.ta.focus({ preventScroll: true }); } catch { state.ta.focus(); }
+        state.ta.setSelectionRange(pos, pos);
+        ensureTextareaOffsetVisible(state.ta, pos);
+        lastCursorPos = -1;
+        syncCursor();
+        state.previewWrap.scrollTop = prevTop;
+        state.previewWrap.scrollLeft = prevLeft;
+        lastProg = { left: state.previewWrap.scrollLeft, top: state.previewWrap.scrollTop };
+    }, false, sig);
 
     on(state.previewWrap, 'wheel', e => {
         if (e.ctrlKey || e.metaKey) return;
@@ -688,5 +775,7 @@ export function init(ac) {
         if (state.editorScaleAuto) setSize('editor', computeAutoScale('editor'), true);
         if (state.notepadScaleAuto) setSize('notepad', computeAutoScale('notepad'), true);
         if (state.notepadPreviewScaleAuto) setSize('notepadPreview', computeAutoScale('notepadPreview'), true);
+        if (state.notepadToolbarScaleAuto) setSize('notepadToolbar', computeAutoScale('notepadToolbar'), true);
+        if (state.headerBtnScaleAuto) setSize('headerBtn', computeAutoScale('headerBtn'), true);
     }), false, sig);
 }

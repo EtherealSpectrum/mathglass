@@ -9,6 +9,8 @@
   const K_BLUR = 'latex_blur_enabled';
   const K_TB_HIDDEN = 'latex_toolbar_hidden';
   const K_PV_HIDDEN = 'latex_preview_hidden';
+  const K_HDR_SCALE = 'latex_header_btn_scale';
+  const K_HDR_AUTO = 'latex_header_btn_scale_auto';
 
   const M_SCROLL = 'latex-panel-scroll';
   const M_SIZE = 'latex-panel-natural-size';
@@ -71,6 +73,7 @@
       --lfp-ink-soft: #9298a6;
       --lfp-btn-bg: rgba(255, 255, 255, 0.06);
       --lfp-line: rgba(255, 255, 255, 0.12);
+      --lfp-btn-scale: 1;
     }
     #${PANEL_ID}[data-theme="light"] {
       --lfp-accent: #4338ca;
@@ -97,17 +100,31 @@
       transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.08s;
       box-sizing: border-box;
     }
+    #${PANEL_ID} .lfp-bar-btn:not(.lfp-win-btn) {
+      width: calc(24px * var(--lfp-btn-scale, 1));
+      height: calc(24px * var(--lfp-btn-scale, 1));
+    }
+    #${PANEL_ID} .lfp-bar-btn:not(.lfp-win-btn) svg {
+      width: calc(15px * var(--lfp-btn-scale, 1));
+      height: calc(15px * var(--lfp-btn-scale, 1));
+    }
     #${PANEL_ID} .lfp-bar-btn.lfp-win-btn {
       border-radius: 4px;
     }
     #${PANEL_ID} .lfp-bar-btn.lfp-blur-btn {
       width: auto;
-      padding: 0 7px;
+      min-width: calc(24px * var(--lfp-btn-scale, 1));
+      height: calc(24px * var(--lfp-btn-scale, 1));
+      padding: 0 calc(7px * var(--lfp-btn-scale, 1));
       border-radius: 999px;
-      font-size: 10px;
+      font-size: calc(10px * var(--lfp-btn-scale, 1));
       font-weight: 700;
-      gap: 3px;
+      gap: calc(3px * var(--lfp-btn-scale, 1));
       border-color: var(--lfp-line);
+    }
+    #${PANEL_ID} .lfp-bar-btn.lfp-blur-btn svg {
+      width: calc(12px * var(--lfp-btn-scale, 1));
+      height: calc(12px * var(--lfp-btn-scale, 1));
     }
     #${PANEL_ID} .lfp-bar-btn:hover {
       background: var(--lfp-accent-soft);
@@ -199,23 +216,24 @@
   }
 
   let geo = { left: 80, top: 80, width: 580, height: 660 };
-  let theme = 'dark', transparency = 0, blurEnabled = true, toolbarHidden = false, previewHidden = false;
+  let theme = 'dark', transparency = 0, blurEnabled = true, toolbarHidden = false, previewHidden = false, headerBtnScale = 1;
   let minimized = false, fullscreen = false, readerOpenedFs = false, preFsGeo = null, savedHeight = 660, dynamicMinH = 300;
-
-  const clampGeo = g => {
-    const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
-    const minW = Math.min(MIN_W, cw - 16), minH = Math.min(dynamicMinH, ch - HANDLE_H - 16);
-    g.width = Math.max(minW, Math.min(g.width, cw - 16));
-    g.height = Math.max(minH, Math.min(g.height, ch - HANDLE_H - 16));
-    g.left = Math.max(0, Math.min(g.left, cw - g.width));
-    g.top = Math.max(0, Math.min(g.top, ch - HANDLE_H * 2));
-    return g;
-  };
 
   const wrapper = document.createElement('div');
   wrapper.id = PANEL_ID;
   wrapper.setAttribute('data-theme', theme);
   const handle = document.createElement('div');
+  const getHandleH = () => Math.max(HANDLE_H, handle.offsetHeight || Math.round(HANDLE_H * headerBtnScale));
+  const clampGeo = g => {
+    const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
+    const hh = getHandleH();
+    const minW = Math.min(MIN_W, cw - 16), minH = Math.min(dynamicMinH, ch - hh - 16);
+    g.width = Math.max(minW, Math.min(g.width, cw - 16));
+    g.height = Math.max(minH, Math.min(g.height, ch - hh - 16));
+    g.left = Math.max(0, Math.min(g.left, cw - g.width));
+    g.top = Math.max(0, Math.min(g.top, ch - hh * 2));
+    return g;
+  };
   const iframe = document.createElement('iframe');
   iframe.setAttribute('allowtransparency', 'true');
   iframe.setAttribute('allow', 'clipboard-write');
@@ -296,18 +314,18 @@
     transition: 'height .18s ease, box-shadow .18s ease', userSelect: 'none'
   });
   Object.assign(handle.style, {
-    height: HANDLE_H + 'px', flexShrink: '0', cursor: 'grab', display: 'flex',
-    alignItems: 'center', padding: '0 6px 0 10px', gap: '6px', fontSize: '12.5px', fontWeight: '600',
+    minHeight: HANDLE_H + 'px', height: 'auto', flexShrink: '0', cursor: 'grab', display: 'flex', flexWrap: 'wrap',
+    alignItems: 'center', padding: '5px 6px 5px 10px', gap: '4px 6px', fontSize: '12.5px', fontWeight: '600',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
     touchAction: 'none', borderBottom: '1px solid rgba(128,128,128,0.18)'
   });
 
   const titleSpan = document.createElement('span');
   titleSpan.textContent = 'MathGlass · LaTeX & phpBB';
-  titleSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none';
+  titleSpan.style.cssText = 'flex:1 1 110px;min-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none';
 
   const controlsGroup = document.createElement('div');
-  controlsGroup.style.cssText = 'display:flex;align-items:center;gap:4px;flex-shrink:0';
+  controlsGroup.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px;max-width:100%';
   controlsGroup.append(
     btnSettings, btnRecent, btnNotepad, btnTransp, sliderWrap, transpVal, btnBlur,
     btnPreview, btnToolbar, btnTheme, divider, btnMin, btnFull, btnClose
@@ -323,6 +341,10 @@
   wrapper.append(handle, iframe, resizeHandle);
   document.body.appendChild(wrapper);
   try { iframe.focus({ preventScroll: true }); } catch { try { iframe.focus(); } catch { } }
+
+  const updateResponsiveBar = () => {
+    requestAnimationFrame(syncPanelAnchors);
+  };
 
   let lastFocused = document.activeElement;
   add(document, 'focusin', e => {
@@ -350,7 +372,7 @@
     const inPanel = wrapper.contains(ae) || ae === iframe;
     const onBarePage = !minimized && (!ae || ae === document.body || ae === document.documentElement);
     const isMod = e.ctrlKey || e.metaKey;
-    const isPanelAlt = e.altKey && !isMod && !e.shiftKey && /^(Key[NCTOBKPSRMELFX]|Digit4)$/.test(e.code);
+    const isPanelAlt = e.altKey && !isMod && !e.shiftKey && /^(Key[NCTOBKPSRMELFXG]|Digit4)$/.test(e.code);
     const isPanelCtrl = inPanel && isMod && !e.altKey && (e.key === 'Enter' || /^(Key[BIKU])$/.test(e.code));
     const isPanelEsc = inPanel && e.key === 'Escape';
     if ((inPanel || (onBarePage && isPanelAlt)) && (isPanelAlt || isPanelCtrl || isPanelEsc)) {
@@ -440,6 +462,16 @@
     });
   }
 
+  function applyHeaderBtnScale(s) {
+    const v = Number(s);
+    headerBtnScale = Number.isFinite(v) ? Math.max(0.8, Math.min(2.0, v)) : 1;
+    wrapper.style.setProperty('--lfp-btn-scale', String(headerBtnScale));
+    if (minimized) {
+      wrapper.style.height = getHandleH() + 'px';
+    }
+    requestAnimationFrame(syncPanelAnchors);
+  }
+
   function syncAllToIframe() {
     postToPanel({ type: M_ACTION, action: 'set-theme', theme });
     postToPanel({ type: M_ACTION, action: 'set-transparency', level: transparency });
@@ -450,16 +482,20 @@
   }
 
   try {
-    storageLocal?.get([K_GEOM, K_THEME, K_TRANSP, K_BLUR, K_TB_HIDDEN, K_PV_HIDDEN], res => {
+    storageLocal?.get([K_GEOM, K_THEME, K_TRANSP, K_BLUR, K_TB_HIDDEN, K_PV_HIDDEN, K_HDR_SCALE, K_HDR_AUTO], res => {
       if (res[K_GEOM]) Object.assign(geo, res[K_GEOM]);
       theme = res[K_THEME] === 'light' ? 'light' : 'dark';
       transparency = typeof res[K_TRANSP] === 'number' ? Math.max(0, Math.min(100, res[K_TRANSP])) : 0;
       blurEnabled = res[K_BLUR] === false ? false : true;
       toolbarHidden = Boolean(res[K_TB_HIDDEN]);
       previewHidden = Boolean(res[K_PV_HIDDEN]);
+      if (res[K_HDR_AUTO] === false && typeof res[K_HDR_SCALE] === 'number') {
+        applyHeaderBtnScale(res[K_HDR_SCALE]);
+      }
       clampGeo(geo);
       Object.assign(wrapper.style, { left: geo.left + 'px', top: geo.top + 'px', width: geo.width + 'px', height: geo.height + 'px' });
       savedHeight = geo.height;
+      updateResponsiveBar();
       applyLook();
       syncBarStates();
       syncAllToIframe();
@@ -473,6 +509,9 @@
         if (changes[K_BLUR]) { blurEnabled = changes[K_BLUR].newValue === false ? false : true; changedLook = true; }
         if (changes[K_TB_HIDDEN]) toolbarHidden = Boolean(changes[K_TB_HIDDEN].newValue);
         if (changes[K_PV_HIDDEN]) previewHidden = Boolean(changes[K_PV_HIDDEN].newValue);
+        if (changes[K_HDR_SCALE] && typeof changes[K_HDR_SCALE].newValue === 'number') {
+          applyHeaderBtnScale(changes[K_HDR_SCALE].newValue);
+        }
         if (changedLook) applyLook();
         syncBarStates();
       };
@@ -623,7 +662,16 @@
     if (!iframe.contentWindow || e.source !== iframe.contentWindow) return;
     const d = e.data;
     if (d?.type === 'latex-panel-ready') {
+      syncAllToIframe();
       focusEditorInPanel();
+      return;
+    }
+    if (d?.type === 'latex-panel-header-btn-scale') {
+      applyHeaderBtnScale(d.scale);
+      return;
+    }
+    if (d?.type === 'latex-request-anchors') {
+      syncPanelAnchors();
       return;
     }
     if (d?.type === 'latex-panel-reader-mode') {
@@ -674,9 +722,10 @@
   btnMin.addEventListener('click', e => {
     e.stopPropagation(); ssStop();
     if (fullscreen) btnFull.click();
+    const hh = getHandleH();
     if (minimized) {
       const ch = document.documentElement.clientHeight;
-      const h = Math.max(Math.min(dynamicMinH, ch - HANDLE_H - 16), Math.min(savedHeight, ch - HANDLE_H - 16));
+      const h = Math.max(Math.min(dynamicMinH, ch - hh - 16), Math.min(savedHeight, ch - hh - 16));
       wrapper.style.height = h + 'px';
       iframe.style.display = 'block'; resizeHandle.style.display = 'flex';
       if (!transparency) wrapper.style.boxShadow = '0 12px 40px rgba(0,0,0,0.45)';
@@ -686,11 +735,12 @@
     } else {
       postToPanel({ type: M_ACTION, action: 'close-popups' });
       savedHeight = wrapper.offsetHeight;
-      wrapper.style.height = HANDLE_H + 'px';
+      wrapper.style.height = hh + 'px';
       iframe.style.display = 'none'; resizeHandle.style.display = 'none';
       wrapper.style.boxShadow = '0 4px 12px rgba(0,0,0,0.35)';
       minimized = true; setIcon(btnMin, ICON.restore, 'Επαναφορά');
     }
+    requestAnimationFrame(syncPanelAnchors);
     persist();
   });
 
@@ -709,8 +759,9 @@
     } else {
       const t = preFsGeo || { left: 80, top: 80, width: 580, height: 660 };
       const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
+      const hh = getHandleH();
       const w = Math.min(t.width, Math.max(MIN_W, cw - 16));
-      const h = Math.min(t.height, Math.max(dynamicMinH, ch - HANDLE_H - 16));
+      const h = Math.min(t.height, Math.max(dynamicMinH, ch - hh - 16));
       wrapper.style.transition = 'none';
       wrapper.style.left = Math.max(0, Math.min(t.left, cw - w)) + 'px';
       wrapper.style.top = Math.max(0, Math.min(t.top, ch - h)) + 'px';
@@ -721,7 +772,11 @@
       setIcon(btnMin, ICON.min, 'Ελαχιστοποίηση'); setIcon(btnFull, ICON.full, 'Πλήρης Οθόνη');
       persist();
     }
-    requestAnimationFrame(() => { wrapper.style.transition = 'height .18s ease, box-shadow .18s ease'; });
+    updateResponsiveBar();
+    requestAnimationFrame(() => {
+      wrapper.style.transition = 'height .18s ease, box-shadow .18s ease';
+      syncPanelAnchors();
+    });
   });
 
   btnClose.addEventListener('click', e => {
@@ -744,7 +799,7 @@
   });
   add(handle, 'pointermove', e => {
     if (!drag) return;
-    const w = wrapper.offsetWidth, h = minimized ? HANDLE_H : wrapper.offsetHeight;
+    const w = wrapper.offsetWidth, h = minimized ? getHandleH() : wrapper.offsetHeight;
     const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
     wrapper.style.left = Math.max(0, Math.min(drag.l + e.clientX - drag.x, cw - w)) + 'px';
     wrapper.style.top = Math.max(0, Math.min(drag.t + e.clientY - drag.y, ch - h)) + 'px';
@@ -767,16 +822,19 @@
   add(resizeHandle, 'pointermove', e => {
     if (!rs) return;
     const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
-    const minW = Math.min(MIN_W, cw - 16), minH = Math.min(dynamicMinH, ch - HANDLE_H - 16);
+    const hh = getHandleH();
+    const minW = Math.min(MIN_W, cw - 16), minH = Math.min(dynamicMinH, ch - hh - 16);
     wrapper.style.width = Math.max(minW, Math.min(rs.w + e.clientX - rs.x, cw - wrapper.offsetLeft - 8)) + 'px';
     wrapper.style.height = Math.max(minH, Math.min(rs.h + e.clientY - rs.y, ch - wrapper.offsetTop - 8)) + 'px';
     savedHeight = wrapper.offsetHeight;
+    updateResponsiveBar();
   });
   const endResize = e => {
     if (!rs) return; rs = null;
     try { resizeHandle.releasePointerCapture(e.pointerId); } catch { }
     iframe.style.pointerEvents = '';
     wrapper.style.transition = 'height .18s ease, box-shadow .18s ease'; persist();
+    updateResponsiveBar();
     syncPanelAnchors();
   };
   add(resizeHandle, 'pointerup', endResize); add(resizeHandle, 'pointercancel', endResize);
@@ -785,6 +843,7 @@
     if (fullscreen) {
       wrapper.style.width = document.documentElement.clientWidth + 'px';
       wrapper.style.height = document.documentElement.clientHeight + 'px';
+      updateResponsiveBar();
       syncPanelAnchors();
       return;
     }
@@ -797,6 +856,7 @@
       height: clamped.height + 'px',
     });
     savedHeight = clamped.height;
+    updateResponsiveBar();
     syncPanelAnchors();
   });
 })();

@@ -3,6 +3,18 @@ import { mirrorGet, mirrorSet, get, set, onChanged } from '../core/storage.js';
 import { $, on, clamp } from '../core/dom.js';
 import { computeAutoScale } from '../core/scale.js';
 
+export const DONATE_URL = 'https://ko-fi.com/nikitask';
+
+export function openDonatePage() {
+  const tabsApi = (typeof browser !== 'undefined' && browser.tabs?.create)
+    ? browser.tabs
+    : (typeof chrome !== 'undefined' && chrome.tabs?.create ? chrome.tabs : null);
+  if (tabsApi) {
+    try { tabsApi.create({ url: DONATE_URL }); return; } catch { }
+  }
+  window.open(DONATE_URL, '_blank', 'noopener,noreferrer');
+}
+
 export const state = {
   ta: null, previewWrap: null, preview: null,
   alignLeft: false,
@@ -11,6 +23,8 @@ export const state = {
   editorScale: 1, editorScaleAuto: true,
   notepadScale: 1, notepadScaleAuto: true,
   notepadPreviewScale: 1, notepadPreviewScaleAuto: true,
+  notepadToolbarScale: 1, notepadToolbarScaleAuto: true,
+  headerBtnScale: 1, headerBtnScaleAuto: true,
   recent: [], dataset: DEFAULTS.dataset,
   userScrolled: false,
   notepadUserScrolled: false,
@@ -22,6 +36,8 @@ const SCALE_PROP = {
   editor: 'editorScale',
   notepad: 'notepadScale',
   notepadPreview: 'notepadPreviewScale',
+  notepadToolbar: 'notepadToolbarScale',
+  headerBtn: 'headerBtnScale',
 };
 const SCALE_KEY = {
   toolbar: { scale: KEYS.toolbarScale, auto: KEYS.toolbarScaleAuto },
@@ -29,6 +45,8 @@ const SCALE_KEY = {
   editor: { scale: KEYS.editorScale, auto: KEYS.editorScaleAuto },
   notepad: { scale: KEYS.notepadScale, auto: KEYS.notepadScaleAuto },
   notepadPreview: { scale: KEYS.notepadPreviewScale, auto: KEYS.notepadPreviewScaleAuto },
+  notepadToolbar: { scale: KEYS.notepadToolbarScale, auto: KEYS.notepadToolbarScaleAuto },
+  headerBtn: { scale: KEYS.headerBtnScale, auto: KEYS.headerBtnScaleAuto },
 };
 
 const persist = (key, value) => set(key, value);
@@ -36,8 +54,9 @@ const persist = (key, value) => set(key, value);
 export function applyTheme(theme, shouldPersist = true) {
   const t = theme === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', t);
-  window.__renderPreview?.();
-  window.__renderHybridPreview?.(true);
+  window.__renderPreview?.(false);
+  window.__renderHybridPreview?.(true, false);
+  window.__refreshNotepadCaret?.();
   if (shouldPersist) persist(KEYS.theme, t);
   else mirrorSet(KEYS.theme, t);
 }
@@ -92,6 +111,25 @@ export function applyToolbarHidden(hidden, shouldPersist = true) {
   else mirrorSet(KEYS.toolbarHidden, h);
 }
 
+export function applyNotepadToolbarHidden(hidden, shouldPersist = true) {
+  const h = Boolean(hidden);
+  const target = $('#phpbb-toolbar');
+  const btn = $('#notepad-toolbar-toggle-btn');
+  if (target) target.classList.toggle('hidden', h);
+  if (h) {
+    $('#phpbb-headings-menu')?.classList.remove('active');
+    $('#phpbb-size-menu')?.classList.remove('active');
+  }
+  if (btn) {
+    btn.classList.toggle('active', !h);
+    btn.setAttribute('aria-pressed', String(!h));
+    btn.title = (h ? 'Εμφάνιση' : 'Απόκρυψη') + ' εργαλειοθήκης σημειωματάριου phpBB (Alt+G)';
+  }
+  requestAnimationFrame(() => window.__refreshNotepadCaret?.());
+  if (shouldPersist) persist(KEYS.notepadToolbarHidden, h);
+  else mirrorSet(KEYS.notepadToolbarHidden, h);
+}
+
 export function applyPreviewHidden(hidden, shouldPersist = true) {
   const h = Boolean(hidden);
   const target = $('.preview-outer');
@@ -106,8 +144,8 @@ export function applyPreviewHidden(hidden, shouldPersist = true) {
   if (btn) { btn.classList.toggle('active', h); btn.title = (h ? 'Εμφάνιση ζωντανής προεπισκόπησης' : 'Απόκρυψη ζωντανής προεπισκόπησης') + ' (Alt+P)'; }
   if (!h) {
     requestAnimationFrame(() => {
-      window.__renderPreview?.();
-      window.__renderHybridPreview?.(true);
+      window.__renderPreview?.(false);
+      window.__renderHybridPreview?.(true, false);
     });
   }
   if (shouldPersist) persist(KEYS.previewHidden, h);
@@ -125,6 +163,7 @@ export async function load() {
     applyTransparency(r[KEYS.transparency] ?? mirrorGet(KEYS.transparency, 'num') ?? DEFAULTS.transparency, false);
     applyBlur(r[KEYS.blurEnabled] ?? mirrorGet(KEYS.blurEnabled, 'bool') ?? true, false);
     applyToolbarHidden(r[KEYS.toolbarHidden] ?? mirrorGet(KEYS.toolbarHidden, 'bool') ?? false, false);
+    applyNotepadToolbarHidden(r[KEYS.notepadToolbarHidden] ?? mirrorGet(KEYS.notepadToolbarHidden, 'bool') ?? false, false);
     applyPreviewHidden(r[KEYS.previewHidden] ?? mirrorGet(KEYS.previewHidden, 'bool') ?? false, false);
 
     const pick = (kind, apply) => {
@@ -142,6 +181,8 @@ export async function load() {
     pick('editor', (v, a) => { state.editorScale = v; state.editorScaleAuto = a; });
     pick('notepad', (v, a) => { state.notepadScale = v; state.notepadScaleAuto = a; });
     pick('notepadPreview', (v, a) => { state.notepadPreviewScale = v; state.notepadPreviewScaleAuto = a; });
+    pick('notepadToolbar', (v, a) => { state.notepadToolbarScale = v; state.notepadToolbarScaleAuto = a; });
+    pick('headerBtn', (v, a) => { state.headerBtnScale = v; state.headerBtnScaleAuto = a; });
   } catch (e) {
     console.warn('[settings.load] Failed:', e);
   }
@@ -150,6 +191,11 @@ export async function load() {
 export function applyVisuals() {
   try {
     document.documentElement.style.setProperty('--toolbar-scale', state.toolbarScale);
+    document.documentElement.style.setProperty('--notepad-toolbar-scale', state.notepadToolbarScale);
+    document.documentElement.style.setProperty('--header-btn-scale', state.headerBtnScale);
+    if (window.parent !== window) {
+      try { window.parent.postMessage({ type: 'latex-panel-header-btn-scale', scale: state.headerBtnScale }, '*'); } catch { }
+    }
     if (state.ta) {
       state.ta.style.fontSize = (16 * state.editorScale) + 'px';
       window.__syncHighlightFont?.('latex-input');
@@ -172,6 +218,8 @@ export function applyVisuals() {
       ['notepad-text-auto-badge', state.notepadScaleAuto],
       ['notepad-preview-auto-badge', state.notepadPreviewScaleAuto],
       ['notepad-preview-inline-auto-badge', state.notepadPreviewScaleAuto],
+      ['notepad-toolbar-auto-badge', state.notepadToolbarScaleAuto],
+      ['header-btn-auto-badge', state.headerBtnScaleAuto],
     ]) {
       const b = $(`#${id}`);
       if (b) { b.classList.toggle('active', auto); b.setAttribute('aria-pressed', String(auto)); }
@@ -182,7 +230,10 @@ export function applyVisuals() {
     const ntl = $('#notepad-text-zoom-label'); if (ntl) ntl.value = Math.round(state.notepadScale * 100);
     const npl = $('#notepad-preview-zoom-label'); if (npl) npl.value = Math.round(state.notepadPreviewScale * 100);
     const npil = $('#notepad-preview-inline-zoom-label'); if (npil) npil.value = Math.round(state.notepadPreviewScale * 100);
+    const ntbl = $('#notepad-toolbar-size-label'); if (ntbl) ntbl.value = Math.round(state.notepadToolbarScale * 100);
+    const hbl = $('#header-btn-size-label'); if (hbl) hbl.value = Math.round(state.headerBtnScale * 100);
     const tl = $('#toolbar-size-label'); if (tl) tl.value = Math.round(state.toolbarScale * 100);
+    window.__refreshNotepadCaret?.();
   } catch { }
 }
 
@@ -218,6 +269,12 @@ export function bindControls(ac) {
   on($('#notepad-preview-zoom-in'), 'click', () => step('notepadPreview', +1), false, sig);
   on($('#notepad-preview-inline-zoom-out'), 'click', () => step('notepadPreview', -1), false, sig);
   on($('#notepad-preview-inline-zoom-in'), 'click', () => step('notepadPreview', +1), false, sig);
+  on($('#notepad-toolbar-size-down'), 'click', () => step('notepadToolbar', -1), false, sig);
+  on($('#notepad-toolbar-size-up'), 'click', () => step('notepadToolbar', +1), false, sig);
+  on($('#phpbb-tb-font-down'), 'click', () => step('notepadToolbar', -1), false, sig);
+  on($('#phpbb-tb-font-up'), 'click', () => step('notepadToolbar', +1), false, sig);
+  on($('#header-btn-size-down'), 'click', () => step('headerBtn', -1), false, sig);
+  on($('#header-btn-size-up'), 'click', () => step('headerBtn', +1), false, sig);
 
   const num = (sel, kind) => {
     const i = $(sel); if (!i) return;
@@ -228,6 +285,7 @@ export function bindControls(ac) {
   num('#toolbar-size-label', 'toolbar'); num('#zoom-label', 'preview'); num('#editor-zoom-label', 'editor');
   num('#notepad-zoom-label', 'notepad'); num('#notepad-text-zoom-label', 'notepad');
   num('#notepad-preview-zoom-label', 'notepadPreview'); num('#notepad-preview-inline-zoom-label', 'notepadPreview');
+  num('#notepad-toolbar-size-label', 'notepadToolbar'); num('#header-btn-size-label', 'headerBtn');
 
   const auto = (sel, kind) => on($(sel), 'click', () => {
     const prop = SCALE_PROP[kind];
@@ -237,6 +295,7 @@ export function bindControls(ac) {
   auto('#toolbar-auto-badge', 'toolbar'); auto('#preview-auto-badge', 'preview'); auto('#editor-auto-badge', 'editor');
   auto('#notepad-auto-badge', 'notepad'); auto('#notepad-text-auto-badge', 'notepad');
   auto('#notepad-preview-auto-badge', 'notepadPreview'); auto('#notepad-preview-inline-auto-badge', 'notepadPreview');
+  auto('#notepad-toolbar-auto-badge', 'notepadToolbar'); auto('#header-btn-auto-badge', 'headerBtn');
 
   const themeBtn = $('#theme-toggle');
   if (themeBtn) {
@@ -287,6 +346,9 @@ export function bindControls(ac) {
   const tbToggle = $('#toolbar-toggle');
   if (tbToggle) on(tbToggle, 'click', () => applyToolbarHidden(!$('#toolbars-container')?.classList.contains('hidden'), true), false, sig);
 
+  const npTbToggle = $('#notepad-toolbar-toggle-btn');
+  if (npTbToggle) on(npTbToggle, 'click', () => applyNotepadToolbarHidden(!$('#phpbb-toolbar')?.classList.contains('hidden'), true), false, sig);
+
   const pvToggle = $('#preview-toggle');
   if (pvToggle) on(pvToggle, 'click', () => applyPreviewHidden(!$('.preview-outer')?.classList.contains('hidden'), true), false, sig);
 
@@ -295,6 +357,7 @@ export function bindControls(ac) {
     if (changes[KEYS.transparency]) applyTransparency(changes[KEYS.transparency].newValue, false);
     if (changes[KEYS.blurEnabled]) applyBlur(changes[KEYS.blurEnabled].newValue, false);
     if (changes[KEYS.toolbarHidden]) applyToolbarHidden(changes[KEYS.toolbarHidden].newValue, false);
+    if (changes[KEYS.notepadToolbarHidden]) applyNotepadToolbarHidden(changes[KEYS.notepadToolbarHidden].newValue, false);
     if (changes[KEYS.previewHidden]) applyPreviewHidden(changes[KEYS.previewHidden].newValue, false);
   });
   sig.addEventListener('abort', unsub, { once: true });
@@ -305,7 +368,7 @@ export function bindControls(ac) {
     if (al) { al.classList.toggle('active', state.alignLeft); al.setAttribute('aria-pressed', String(state.alignLeft)); }
   };
   applyAlign();
-  on(al, 'click', () => { state.alignLeft = !state.alignLeft; persist(KEYS.alignLeft, state.alignLeft); applyAlign(); window.__renderPreview?.(); }, false, sig);
+  on(al, 'click', () => { state.alignLeft = !state.alignLeft; persist(KEYS.alignLeft, state.alignLeft); applyAlign(); window.__renderPreview?.(false); }, false, sig);
 
   for (const [sel, key] of [['#tex-toggle', KEYS.texWrap], ['#inline-toggle', KEYS.textstyle], ['#displaystyle-toggle', KEYS.displaystyle]]) {
     const c = $(sel); if (c) on(c, 'change', () => persist(key, c.checked), false, sig);
@@ -318,33 +381,19 @@ export function bindControls(ac) {
     persist(KEYS.settingsCollapsed, h); window.__reportNaturalSize?.(400);
   }, false, sig);
 
-  const donateToggle = $('#settings-donate-toggle');
-  const donateCard = $('#settings-donate-card');
   const donateCopy = $('#settings-donate-copy');
-  if (donateToggle && donateCard) {
-    on(donateToggle, 'click', e => {
+  if (donateCopy) {
+    on(donateCopy, 'click', e => {
       e.stopPropagation();
-      const open = donateCard.classList.toggle('active');
-      donateToggle.setAttribute('aria-expanded', String(open));
-      const caret = donateToggle.querySelector('.donate-caret');
-      if (caret) caret.textContent = open ? '▴' : '▾';
+      openDonatePage();
     }, false, sig);
   }
-  if (donateCopy) {
-    const DONATE_URL = "https://ko-fi.com/nikitask";
-    on(donateCopy, 'click', async e => {
+
+  const donateHeaderBtn = $('#donate-btn');
+  if (donateHeaderBtn) {
+    on(donateHeaderBtn, 'click', e => {
       e.stopPropagation();
-      if (DONATE_URL && /^https?:\/\//i.test(DONATE_URL)) {
-        if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
-          chrome.tabs.create({ url: DONATE_URL });
-        } else {
-          window.open(DONATE_URL, '_blank', 'noopener');
-        }
-        return;
-      }
-      try { await navigator.clipboard?.writeText('Στήριξη ανάπτυξης — MathGlass'); } catch { }
-      donateCopy.textContent = 'Ορίστε Donate URL!';
-      setTimeout(() => { donateCopy.textContent = "☕ Κεράστε έναν καφέ"; }, 2000);
+      openDonatePage();
     }, false, sig);
   }
 }

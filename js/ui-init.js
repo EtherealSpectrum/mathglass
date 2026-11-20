@@ -25,6 +25,17 @@
             tb.classList.add('hidden');
         }
 
+        const npTb = document.getElementById('phpbb-toolbar');
+        const npTbBtn = document.getElementById('notepad-toolbar-toggle-btn');
+        const npTbHidden = localStorage.getItem('latex_notepad_toolbar_hidden') === 'true';
+        if (npTb && npTbHidden) {
+            npTb.classList.add('hidden');
+        }
+        if (npTbBtn) {
+            npTbBtn.classList.toggle('active', !npTbHidden);
+            npTbBtn.setAttribute('aria-pressed', !npTbHidden ? 'true' : 'false');
+        }
+
         if (localStorage.getItem('latex_preview_hidden') === 'true') {
             const po = document.querySelector('.preview-outer');
             const rz = document.getElementById('resizer-middle');
@@ -43,7 +54,9 @@
             ['notepad-auto-badge', 'latex_notepad_font_auto'],
             ['notepad-text-auto-badge', 'latex_notepad_font_auto'],
             ['notepad-preview-auto-badge', 'latex_notepad_preview_auto'],
-            ['notepad-preview-inline-auto-badge', 'latex_notepad_preview_auto']
+            ['notepad-preview-inline-auto-badge', 'latex_notepad_preview_auto'],
+            ['notepad-toolbar-auto-badge', 'latex_notepad_toolbar_scale_auto'],
+            ['header-btn-auto-badge', 'latex_header_btn_scale_auto']
         ];
 
         for (let i = 0; i < autoBadges.length; i++) {

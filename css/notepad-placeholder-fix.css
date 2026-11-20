@@ -5,48 +5,75 @@
    ========================================================= */
 
 #notepad-highlight-wrap #notepad-input::placeholder {
-  opacity: 1;
+  font-style: italic;
   font-weight: 400;
+  opacity: 1 !important;
   transition: color 0.15s ease, text-shadow 0.15s ease;
 }
 
-/* Σκούρο θέμα + διαφάνεια: απαλό γκρι (--ink-soft) που μένει ευκρινές χωρίς να γίνεται πιο έντονο από το κείμενο */
+:root[data-theme="dark"] #notepad-highlight-wrap #notepad-input::placeholder {
+  color: rgba(162, 170, 186, 0.56) !important;
+  -webkit-text-fill-color: rgba(162, 170, 186, 0.56) !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65) !important;
+}
+
+:root[data-theme="light"] #notepad-highlight-wrap #notepad-input::placeholder {
+  color: rgba(58, 63, 74, 0.54) !important;
+  -webkit-text-fill-color: rgba(58, 63, 74, 0.54) !important;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.72) !important;
+}
+
+/* Σκούρο θέμα + διαφάνεια: ευκρινής σκιά ώστε να διαβάζεται, αλλά αισθητά πιο αχνή από το κείμενο χρήστη */
 :root[data-theme="dark"][data-transparent="true"] #notepad-highlight-wrap #notepad-input::placeholder {
-  color: rgba(158, 165, 180, calc(0.62 + (1 - var(--panel-alpha, 1)) * 0.14));
-  -webkit-text-fill-color: rgba(158, 165, 180, calc(0.62 + (1 - var(--panel-alpha, 1)) * 0.14));
-  font-weight: 400;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, calc(0.35 + (1 - var(--panel-alpha, 1)) * 0.35));
+  color: rgba(176, 184, 200, calc(0.52 + (1 - var(--panel-alpha, 1)) * 0.10)) !important;
+  -webkit-text-fill-color: rgba(176, 184, 200, calc(0.52 + (1 - var(--panel-alpha, 1)) * 0.10)) !important;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.92),
+    0 0 6px rgba(0, 0, 0, 0.75) !important;
 }
 
 /* Ανοιχτό θέμα + διαφάνεια */
 :root[data-theme="light"][data-transparent="true"] #notepad-highlight-wrap #notepad-input::placeholder {
-  color: rgba(68, 74, 86, calc(0.62 + (1 - var(--panel-alpha, 1)) * 0.14));
-  -webkit-text-fill-color: rgba(68, 74, 86, calc(0.62 + (1 - var(--panel-alpha, 1)) * 0.14));
-  font-weight: 400;
-  text-shadow: 0 1px 2px rgba(255, 255, 255, calc(0.45 + (1 - var(--panel-alpha, 1)) * 0.35));
+  color: rgba(58, 64, 76, calc(0.52 + (1 - var(--panel-alpha, 1)) * 0.10)) !important;
+  -webkit-text-fill-color: rgba(58, 64, 76, calc(0.52 + (1 - var(--panel-alpha, 1)) * 0.10)) !important;
+  text-shadow:
+    0 1px 2px rgba(255, 255, 255, 0.95),
+    0 0 6px rgba(255, 255, 255, 0.8) !important;
 }
 
-/* Πολύ ελαφρύ πέπλο (έως 14%–16%) ΜΟΝΟ όσο η φόρμα είναι άδεια και η διαφάνεια > 82%.
+/* Πολύ ελαφρύ πέπλο (έως 12%) ΜΟΝΟ όσο η φόρμα είναι άδεια και η διαφάνεια > 82%.
    Εξαφανίζεται μόλις αρχίσετε να πληκτρολογείτε. */
 :root[data-theme="dark"][data-transparent="true"] #notepad-highlight-wrap #notepad-input:placeholder-shown {
-  background-color: rgba(15, 17, 23, clamp(0, calc((0.18 - var(--panel-alpha, 1)) * 0.78), 0.14));
+  background-color: rgba(15, 17, 23, clamp(0, calc((0.18 - var(--panel-alpha, 1)) * 0.65), 0.12)) !important;
 }
 
 :root[data-theme="light"][data-transparent="true"] #notepad-highlight-wrap #notepad-input:placeholder-shown {
-  background-color: rgba(240, 242, 246, clamp(0, calc((0.18 - var(--panel-alpha, 1)) * 0.90), 0.16));
+  background-color: rgba(240, 242, 246, clamp(0, calc((0.18 - var(--panel-alpha, 1)) * 0.75), 0.14)) !important;
 }
 
 /* =========================================================
    Πρότυπα (Templates) & Μετρητής Λέξεων / Χαρακτήρων
    ========================================================= */
 .notepad-templates-bar {
+  position: relative;
+  z-index: 300;
   display: none;
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
   padding: 5px 10px;
   border-bottom: 1px solid var(--line);
-  background: var(--bar-bg);
+  background: var(--toolbar-bg);
+}
+
+:root[data-theme="dark"][data-transparent="true"] .notepad-templates-bar {
+  background: rgba(var(--toolbar-rgb), max(0.26, var(--panel-alpha))) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+:root[data-theme="light"][data-transparent="true"] .notepad-templates-bar {
+  background: rgba(var(--toolbar-rgb), max(0.36, var(--panel-alpha))) !important;
+  border-bottom-color: rgba(17, 18, 20, 0.18) !important;
 }
 
 .notepad-templates-bar.active {
@@ -54,7 +81,7 @@
 }
 
 .notepad-templates-label {
-  font-size: 11px;
+  font-size: calc(11px * var(--notepad-toolbar-scale, 1));
   font-weight: 600;
   color: var(--ink-soft);
   margin-right: 2px;
@@ -65,11 +92,16 @@
   background: var(--btn-bg);
   color: var(--ink);
   border-radius: 5px;
-  padding: 3px 8px;
+  padding: calc(3px * var(--notepad-toolbar-scale, 1)) calc(8px * var(--notepad-toolbar-scale, 1));
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: calc(11px * var(--notepad-toolbar-scale, 1));
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+:root[data-transparent="true"] .notepad-tpl-chip {
+  background: rgba(var(--panel-rgb), min(0.75, calc(var(--panel-alpha) + 0.12))) !important;
+  border-color: rgba(128, 128, 128, 0.3) !important;
 }
 
 .notepad-tpl-chip:hover {
@@ -78,12 +110,14 @@
 }
 
 #notepad-highlight-wrap #notepad-highlight,
+#notepad-highlight-wrap #notepad-caret-mirror,
 #notepad-highlight-wrap #notepad-input {
   padding-bottom: 28px !important;
   box-sizing: border-box !important;
 }
 
-#notepad-highlight-wrap #notepad-highlight span {
+#notepad-highlight-wrap #notepad-highlight span,
+#notepad-highlight-wrap #notepad-highlight span::before {
   display: inline !important;
   line-height: inherit !important;
   font-size: inherit !important;
@@ -91,6 +125,13 @@
   font-weight: inherit !important;
   font-style: inherit !important;
   letter-spacing: inherit !important;
+  word-spacing: inherit !important;
+  tab-size: inherit !important;
+  white-space: inherit !important;
+  word-break: inherit !important;
+  overflow-wrap: inherit !important;
+  font-variant-ligatures: inherit !important;
+  font-kerning: inherit !important;
   padding: 0 !important;
   margin: 0 !important;
   border-width: 0 !important;
@@ -110,9 +151,13 @@
   padding: 2px 7px;
   border-radius: 5px;
   color: var(--ink-soft);
-  background: var(--bar-bg);
+  background: var(--panel);
   border: 1px solid var(--line);
   opacity: 0.9;
+}
+
+:root[data-transparent="true"] .notepad-counter {
+  background: rgba(var(--panel-rgb), min(0.85, calc(var(--panel-alpha) + 0.25)));
 }
 
 
@@ -239,8 +284,10 @@ body.notepad-reader-mode #notepad-preview-wrap {
 }
 
 body.notepad-reader-mode #notepad-preview {
-  max-width: 780px !important;
-  margin: 0 auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  text-align: left !important;
   line-height: 1.75 !important;
   color: var(--ink) !important;
 }

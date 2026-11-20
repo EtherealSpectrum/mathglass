@@ -21,6 +21,10 @@ function mountStandaloneHeaderIfNeeded() {
     const bar = document.createElement('div');
     bar.className = 'standalone-header';
     bar.innerHTML = `
+        <button class="donate-header-btn" id="donate-btn" type="button" aria-label="Στήριξη ανάπτυξης — Κεράστε έναν καφέ" title="Στήριξη ανάπτυξης — Κεράστε έναν καφέ">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8h1a4 4 0 0 1 0 8h-1"></path><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path><line x1="6" y1="1" x2="6" y2="4"></line><line x1="10" y1="1" x2="10" y2="4"></line><line x1="14" y1="1" x2="14" y2="4"></line></svg>
+            <span>Δωρεά</span>
+        </button>
         <button class="preview-toggle" id="settings-toggle" type="button" aria-label="Ρυθμίσεις" title="Ρυθμίσεις">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
@@ -40,7 +44,7 @@ function mountStandaloneHeaderIfNeeded() {
             </div>
             <span class="transparency-val" id="transparency-val">0%</span>
         </div>
-        <button class="preview-toggle active" id="blur-toggle" type="button" aria-label="Θόλωμα (Τζαμαρία)" title="Θόλωμα (Τζαμαρία) ON/OFF" style="width:auto;padding:0 7px;font-size:10px;font-weight:700;">Blur</button>
+        <button class="preview-toggle active" id="blur-toggle" type="button" aria-label="Θόλωμα (Τζαμαρία)" title="Θόλωμα (Τζαμαρία) ON/OFF">Blur</button>
         <button class="preview-toggle" id="preview-toggle" type="button" aria-label="Απόκρυψη προεπισκόπησης" title="Απόκρυψη προεπισκόπησης">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>
         </button>

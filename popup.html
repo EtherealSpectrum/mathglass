@@ -104,6 +104,30 @@
             color: #4338ca !important;
             filter: drop-shadow(0 0 2px rgba(67, 56, 202, 0.35));
         }
+        .mg-np-text-caret {
+            position: relative;
+            display: inline-block;
+            width: 0;
+            height: 1.15em;
+            vertical-align: text-bottom;
+            pointer-events: none;
+        }
+        .mg-np-text-caret::after {
+            content: "";
+            position: absolute;
+            left: -1px;
+            top: 0.05em;
+            width: 2px;
+            height: 1.08em;
+            border-radius: 1px;
+            background: #a78bfa;
+            box-shadow: 0 0 4px rgba(139, 123, 255, 0.75);
+            animation: mgCaretPulse 1.05s ease-in-out infinite;
+        }
+        html[data-theme="light"] .mg-np-text-caret::after {
+            background: #4338ca;
+            box-shadow: 0 0 3px rgba(67, 56, 202, 0.45);
+        }
         .phpbb-center {
             text-align: center;
             margin: 4px 0;
@@ -216,8 +240,10 @@
                 <button class="notepad-btn accent" id="notepad-auto-dollar-btn" type="button" aria-pressed="true"
                     title="Αυτόματο $...$: ΕΝΕΡΓΟ — Όταν ο κέρσορας είναι εκτός εξίσωσης ($...$, $$...$$, [tex]...[/tex]), τα σύμβολα της εργαλειοθήκης KaTeX περιβάλλονται αυτόματα με $...$">$
                     Auto</button>
-                <button class="notepad-btn active" id="notepad-templates-btn" type="button" aria-pressed="true"
+                <button class="notepad-btn" id="notepad-templates-btn" type="button" aria-pressed="false"
                     title="Εμφάνιση/Απόκρυψη έτοιμων προτύπων phpBB & KaTeX (Alt+L)">Πρότυπα ▾</button>
+                <button class="notepad-btn active" id="notepad-toolbar-toggle-btn" type="button" aria-pressed="true"
+                    title="Εμφάνιση/Απόκρυψη εργαλειοθήκης σημειωματάριου phpBB (Alt+G)">Εργαλειοθήκη ▾</button>
                 <button class="notepad-btn accent" id="notepad-pull-btn" type="button"
                     title="Επικόλληση της τρέχουσας εξίσωσης από τον Editor (Alt+E)">+ Από Editor</button>
             </div>
@@ -284,16 +310,24 @@
             <span class="phpbb-sep"></span>
             <button type="button" class="phpbb-tb-btn phpbb-tb-wide phpbb-tb-danger" id="phpbb-clear-fmt-btn"
                 title="Απαλοιφή μορφοποίησης (αφαιρεί BBCode)">Απαλοιφή</button>
+            <div class="phpbb-tb-size-group" role="group" aria-label="Μέγεθος γραμμάτων εργαλειοθήκης σημειωματάριου">
+                <button type="button" class="phpbb-tb-btn phpbb-tb-size-btn" id="phpbb-tb-font-down"
+                    title="Μικρότερα γράμματα εργαλειοθήκης σημειωματάριου">A−</button>
+                <button type="button" class="phpbb-tb-btn phpbb-tb-size-btn" id="phpbb-tb-font-up"
+                    title="Μεγαλύτερα γράμματα εργαλειοθήκης σημειωματάριου">A+</button>
+            </div>
         </div>
 
-        <!-- Ορατή μπάρα Προτύπων (Templates) -->
-        <div class="notepad-templates-bar active" id="notepad-templates-bar"></div>
+        <!-- Κρυφή αρχικά μπάρα Προτύπων (Templates) — εμφανίζεται με κλικ στο «Πρότυπα ▾» -->
+        <div class="notepad-templates-bar" id="notepad-templates-bar"></div>
 
         <div class="notepad-body">
             <div class="highlight-wrap" id="notepad-highlight-wrap">
                 <pre class="highlight-layer notepad-font" id="notepad-highlight" aria-hidden="true"></pre>
+                <div class="highlight-layer notepad-font np-caret-mirror" id="notepad-caret-mirror" aria-hidden="true"></div>
                 <textarea id="notepad-input" spellcheck="true"
                     placeholder="Γράψτε πεζό κείμενο phpBB ([b], [list], [quote], [hide], [ggb]) και εξισώσεις με [tex]...[/tex], $...$ ή $$...$$…"></textarea>
+                <span class="np-editor-caret" id="notepad-editor-caret" aria-hidden="true"></span>
                 <div class="notepad-counter" id="notepad-counter" aria-live="polite">0 λέξεις · 0 χαρακτήρες</div>
             </div>
             <div class="resizer" id="notepad-resizer" title="Σύρετε για αλλαγή ύψους προεπισκόπησης"></div>
@@ -381,6 +415,15 @@
             <input type="number" id="notepad-preview-zoom-label" min="65" max="240" step="1" value="100">
             <button id="notepad-preview-zoom-in" type="button">Aa+</button>
         </div>
+        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Εργαλειοθήκη
+            Σημειωματάριου</div>
+        <div class="toolbar-size-control" role="group" aria-label="Μέγεθος γραμμάτων εργαλειοθήκης σημειωματάριου">
+            <button class="auto-badge active" id="notepad-toolbar-auto-badge" type="button"
+                aria-pressed="true">AUTO</button>
+            <button id="notepad-toolbar-size-down" type="button">A−</button>
+            <input type="number" id="notepad-toolbar-size-label" min="80" max="200" step="10" value="100">
+            <button id="notepad-toolbar-size-up" type="button">A+</button>
+        </div>
         <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Μέγεθος Συμβόλων</div>
         <div class="toolbar-size-control" role="group">
             <button class="auto-badge active" id="toolbar-auto-badge" type="button" aria-pressed="true">AUTO</button>
@@ -388,18 +431,42 @@
             <input type="number" id="toolbar-size-label" min="70" max="200" step="10" value="100">
             <button id="toolbar-size-up" type="button">A+</button>
         </div>
+        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Κουμπιά Κεφαλίδας
+        </div>
+        <div class="toolbar-size-control" role="group" aria-label="Μέγεθος κουμπιών κεφαλίδας">
+            <button class="auto-badge active" id="header-btn-auto-badge" type="button" aria-pressed="true">AUTO</button>
+            <button id="header-btn-size-down" type="button">A−</button>
+            <input type="number" id="header-btn-size-label" min="80" max="200" step="10" value="100">
+            <button id="header-btn-size-up" type="button">A+</button>
+        </div>
         <button class="syntax-toggle-btn active" id="syntax-highlight-toggle" type="button"
             aria-pressed="true">Χρωματισμός Σύνταξης: ΕΝΕΡΓΟΣ</button>
 
         <div class="settings-donate-wrap">
-            <button class="settings-donate-toggle" id="settings-donate-toggle" type="button" aria-expanded="false">
-                <span>☕ Στήριξη ανάπτυξης (Δωρεά)</span>
-                <span class="donate-caret" aria-hidden="true">▾</span>
-            </button>
-            <div class="settings-donate-card" id="settings-donate-card">
-                <div>Αν σας βοηθάει καθημερινά το εργαλείο, μπορείτε προαιρετικά να στηρίξετε την ανάπτυξή του.</div>
-                <button class="settings-donate-copy" id="settings-donate-copy" type="button">☕ Κεράστε έναν
-                    καφέ</button>
+            <div class="settings-donate-card active" id="settings-donate-card">
+                <div class="settings-donate-title">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M18 8h1a4 4 0 0 1 0 8h-1"></path>
+                        <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path>
+                        <line x1="6" y1="1" x2="6" y2="4"></line>
+                        <line x1="10" y1="1" x2="10" y2="4"></line>
+                        <line x1="14" y1="1" x2="14" y2="4"></line>
+                    </svg>
+                    <span>Στήριξη ανάπτυξης</span>
+                </div>
+                <div>Αν σας βοηθάει καθημερινά το MathGlass, μπορείτε να στηρίξετε την ανάπτυξή του.</div>
+                <button class="settings-donate-copy" id="settings-donate-copy" type="button">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M18 8h1a4 4 0 0 1 0 8h-1"></path>
+                        <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path>
+                        <line x1="6" y1="1" x2="6" y2="4"></line>
+                        <line x1="10" y1="1" x2="10" y2="4"></line>
+                        <line x1="14" y1="1" x2="14" y2="4"></line>
+                    </svg>
+                    <span>Κεράστε έναν καφέ</span>
+                </button>
             </div>
         </div>
     </div>

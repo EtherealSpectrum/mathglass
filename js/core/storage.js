@@ -38,7 +38,10 @@ export function remove(key) {
 
 export function onChanged(cb) {
   if (!api) return () => {};
-  const storageRoot = (typeof browser !== 'undefined' && browser.storage) ? browser.storage : chrome.storage;
+  const storageRoot = (typeof browser !== 'undefined' && browser.storage)
+    ? browser.storage
+    : (typeof chrome !== 'undefined' ? chrome.storage : null);
+  if (!storageRoot?.onChanged) return () => {};
   const handler = (changes, area) => { if (area === 'local') cb(changes); };
   storageRoot.onChanged.addListener(handler);
   return () => { try { storageRoot.onChanged.removeListener(handler); } catch {} };

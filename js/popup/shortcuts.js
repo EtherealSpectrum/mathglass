@@ -1,5 +1,5 @@
 import { $, on } from '../core/dom.js';
-import { applyTheme, applyTransparency, applyBlur, applyToolbarHidden, applyPreviewHidden } from './settings.js';
+import { applyTheme, applyTransparency, applyBlur, applyToolbarHidden, applyNotepadToolbarHidden, applyPreviewHidden } from './settings.js';
 import * as toolbar from './toolbar.js';
 import * as notepad from './notepad.js';
 
@@ -10,6 +10,7 @@ const SHORTCUT_HINTS = [
   ['#notepad-copy-btn', 'Alt+C', 'Αντιγραφή κειμένου σημειωματάριου'],
   ['#notepad-toggle', 'Alt+N', 'Σημειωματάριο phpBB'],
   ['#notepad-templates-btn', 'Alt+L', 'Εμφάνιση/Απόκρυψη προτύπων'],
+  ['#notepad-toolbar-toggle-btn', 'Alt+G', 'Εμφάνιση/Απόκρυψη εργαλειοθήκης σημειωματάριου phpBB'],
   ['#notepad-reader-btn', 'Alt+F', 'Λειτουργία Ανάγνωσης — Πλήρης οθόνη ζωντανής προεπισκόπησης'],
   ['#theme-toggle', 'Alt+T', 'Εναλλαγή θέματος'],
   ['#transparency-toggle', 'Alt+O', 'Διαφάνεια / Αδιαφάνεια'],
@@ -198,6 +199,14 @@ function handleShortcutEvent(e, isFromHost = false) {
       if (inNotepad) {
         if (!isFromHost) e.preventDefault?.();
         $('#notepad-templates-btn')?.click();
+        scheduleEditorFocus(false);
+        return true;
+      }
+      return false;
+    case 'KeyG':
+      if (inNotepad) {
+        if (!isFromHost) e.preventDefault?.();
+        applyNotepadToolbarHidden(!$('#phpbb-toolbar')?.classList.contains('hidden'), true);
         scheduleEditorFocus(false);
         return true;
       }
