@@ -154,6 +154,7 @@
 <summary><strong>MathGlass Desktop (Electron — Windows / macOS / Linux, Εκκίνηση & Release)</strong></summary>
 
 1. Εκτέλεσε το `MathGlass-Desktop-3.3.0-win-x64.exe`
+
 Συντομεύσεις παραθύρου `Alt+Shift+P` (Pin), `Alt+Shift+M` (Ελαχιστοποίηση), `Alt+Shift+F` (Μεγιστοποίηση/Επαναφορά) και `Alt+Shift+Q` (Κλείσιμο).
 </details>
 
