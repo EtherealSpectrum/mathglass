@@ -132,6 +132,148 @@
             text-align: center;
             margin: 4px 0;
         }
+        .np-sel-start,
+        .np-sel-end {
+            display: none;
+        }
+        .mg-katex-sel-host {
+            position: relative !important;
+        }
+        .mg-sel-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 2;
+            opacity: 0.34;
+        }
+        .mg-sel-rect {
+            position: absolute;
+            background: var(--accent, #8b7bff);
+            border-radius: 2px;
+            pointer-events: none;
+        }
+        mark.mg-np-sel {
+            background: rgba(139, 123, 255, 0.34);
+            color: inherit;
+            border-radius: 2px;
+            padding: 0;
+        }
+        html[data-theme="light"] mark.mg-np-sel {
+            background: rgba(67, 56, 202, 0.24);
+        }
+        .mg-np-math-selected {
+            background-color: rgba(139, 123, 255, 0.26) !important;
+            outline: 1px solid rgba(139, 123, 255, 0.58);
+            border-radius: 4px;
+        }
+        html[data-theme="light"] .mg-np-math-selected {
+            background-color: rgba(67, 56, 202, 0.18) !important;
+            outline: 1px solid rgba(67, 56, 202, 0.45);
+        }
+        .mg-slot-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 1;
+        }
+        .mg-slot-box {
+            position: absolute;
+            box-sizing: border-box;
+            border: 1.25px dashed rgba(167, 139, 250, 0.84);
+            background: rgba(139, 123, 255, 0.08);
+            border-radius: 4px;
+            box-shadow: 0 0 0 1px rgba(139, 123, 255, 0.10);
+            pointer-events: none;
+        }
+        html[data-theme="light"] .mg-slot-box {
+            border-color: rgba(67, 56, 202, 0.74);
+            background: rgba(67, 56, 202, 0.06);
+            box-shadow: 0 0 0 1px rgba(67, 56, 202, 0.08);
+        }
+        .mg-nav-led {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            height: 20px;
+            padding: 0 7px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: var(--btn-bg);
+            color: var(--ink-soft);
+            font-family: var(--sans);
+            font-size: 9.5px;
+            font-weight: 600;
+            letter-spacing: 0.1px;
+            cursor: pointer;
+            white-space: nowrap;
+            flex: 0 0 auto;
+            transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+        }
+        .mg-nav-led:hover {
+            border-color: var(--accent);
+            color: var(--ink);
+        }
+        .mg-nav-led .mg-nav-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: rgba(148, 163, 184, 0.55);
+            flex-shrink: 0;
+            transition: background 0.18s ease, box-shadow 0.18s ease;
+        }
+        .mg-nav-led.is-on {
+            border-color: rgba(34, 197, 94, 0.55);
+            background: rgba(34, 197, 94, 0.14);
+            color: #4ade80;
+            box-shadow: 0 0 10px rgba(34, 197, 94, 0.18);
+        }
+        .mg-nav-led.is-on .mg-nav-dot {
+            background: #22c55e;
+            box-shadow: 0 0 6px #22c55e, 0 0 10px rgba(34, 197, 94, 0.85);
+        }
+        html[data-theme="light"] .mg-nav-led.is-on {
+            border-color: rgba(22, 163, 74, 0.5);
+            background: rgba(22, 163, 74, 0.10);
+            color: #15803d;
+            box-shadow: 0 0 8px rgba(22, 163, 74, 0.14);
+        }
+        html[data-theme="light"] .mg-nav-led.is-on .mg-nav-dot {
+            background: #16a34a;
+            box-shadow: 0 0 5px rgba(22, 163, 74, 0.75);
+        }
+        .mg-nav-led.is-locked-off {
+            opacity: 0.55;
+        }
+        .mg-nav-led.is-locked-off .mg-nav-dot {
+            background: rgba(239, 68, 68, 0.72);
+        }
+        .preview-controls button.mg-nav-led {
+            width: auto;
+            height: 20px;
+            padding: 0 7px;
+            font-size: 9.5px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: var(--btn-bg);
+            color: var(--ink-soft);
+            gap: 4px;
+            margin-right: 2px;
+        }
+        .preview-controls button.mg-nav-led:hover {
+            border-color: var(--accent);
+            background: var(--btn-hover);
+            color: var(--ink);
+        }
+        .preview-controls button.mg-nav-led.is-on {
+            border-color: rgba(34, 197, 94, 0.55);
+            background: rgba(34, 197, 94, 0.14);
+            color: #4ade80;
+        }
+        html[data-theme="light"] .preview-controls button.mg-nav-led.is-on {
+            border-color: rgba(22, 163, 74, 0.5);
+            background: rgba(22, 163, 74, 0.12);
+            color: #15803d;
+        }
     </style>
     <script src="lib/html2canvas.min.js"></script>
     <script src="lib/jspdf.umd.min.js"></script>
@@ -150,18 +292,23 @@
         <div class="resizer" id="resizer-middle" title="Σύρετε για αλλαγή ύψους προεπισκόπησης"></div>
         <div class="preview-outer">
             <div class="preview-controls">
+                <button class="mg-nav-led" id="preview-nav-indicator" type="button" aria-pressed="false"
+                    title="Διαισθητική πλοήγηση (← / → εντός LaTeX): ΑΝΕΝΕΡΓΗ — Κάντε κλικ στην προεπισκόπηση για ενεργοποίηση (Alt+I στις Ρυθμίσεις)">
+                    <span class="mg-nav-dot" aria-hidden="true"></span>
+                    <span>Πλοήγηση</span>
+                </button>
                 <button class="auto-badge active" id="preview-auto-badge" type="button" aria-pressed="true"
-                    title="Αυτόματο μέγεθος">AUTO</button>
-                <button id="preview-inline-btn" type="button" title="Αριστερή στοίχιση" aria-pressed="false">
+                    title="Αυτόματο μέγεθος (Alt+0)">AUTO</button>
+                <button id="preview-inline-btn" type="button" title="Αριστερή στοίχιση (Alt+A)" aria-pressed="false">
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"
                         stroke-linecap="round" stroke-linejoin="round">
                         <path d="M2 2v10M5 7h7M9 4l3 3-3 3" />
                     </svg>
                 </button>
-                <button id="zoom-out" title="Σμίκρυνση">−</button>
+                <button id="zoom-out" title="Σμίκρυνση (Alt+-)">−</button>
                 <input type="number" id="zoom-label" min="50" max="300" step="1" value="100"
                     title="Μέγεθος γραμματοσειράς (%)">
-                <button id="zoom-in" title="Μεγέθυνση">+</button>
+                <button id="zoom-in" title="Μεγέθυνση (Alt+=)">+</button>
             </div>
             <div class="preview-wrap" id="preview-wrap">
                 <div id="preview"></div>
@@ -175,26 +322,26 @@
                     <input type="checkbox" id="tex-toggle" checked>
                     <span class="slider"></span>
                 </label>
-                <label class="toggle-label" for="tex-toggle">Περιτύλιξη $</label>
+                <label class="toggle-label" for="tex-toggle" title="Περιτύλιξη $ (Alt+1)">Περιτύλιξη $</label>
             </div>
             <div class="toggle-container">
                 <label class="toggle-switch">
                     <input type="checkbox" id="inline-toggle" checked>
                     <span class="slider"></span>
                 </label>
-                <label class="toggle-label" for="inline-toggle">Στοίχιση (\textstyle)</label>
+                <label class="toggle-label" for="inline-toggle" title="Στοίχιση \textstyle (Alt+2)">Στοίχιση (\textstyle)</label>
             </div>
             <div class="toggle-container">
                 <label class="toggle-switch">
                     <input type="checkbox" id="displaystyle-toggle" checked>
                     <span class="slider"></span>
                 </label>
-                <label class="toggle-label" for="displaystyle-toggle">Μεγάλα (\displaystyle)</label>
+                <label class="toggle-label" for="displaystyle-toggle" title="Μεγάλα \displaystyle (Alt+3)">Μεγάλα (\displaystyle)</label>
             </div>
         </div>
         <div class="actions">
             <button class="action ghost btn-settings" id="settings-btn" type="button"
-                title="Απόκρυψη/Εμφάνιση ρυθμίσεων">
+                title="Απόκρυψη/Εμφάνιση ρυθμίσεων (Alt+V)">
                 <svg class="chevron" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="6 9 12 15 18 9"></polyline>
@@ -204,7 +351,7 @@
                 title="Αντιγραφή εξίσωσης στο πρόχειρο (Alt+C)">Αντιγραφή</button>
             <div class="export-dropdown">
                 <button class="action ghost export-more-trigger" id="export-more-btn" type="button"
-                    title="Επιλογές εξαγωγής">Εξαγωγή ▾</button>
+                    title="Επιλογές εξαγωγής (Alt+Z)">Εξαγωγή ▾</button>
                 <div class="export-menu" id="export-more-menu">
                     <button type="button" data-export-fmt="png">Εικόνα PNG (.png)</button>
                     <button type="button" data-export-fmt="png-transparent">PNG (Διαφανές φόντο)</button>
@@ -330,19 +477,27 @@
                 <span class="np-editor-caret" id="notepad-editor-caret" aria-hidden="true"></span>
                 <div class="notepad-counter" id="notepad-counter" aria-live="polite">0 λέξεις · 0 χαρακτήρες</div>
             </div>
-            <div class="resizer" id="notepad-resizer" title="Σύρετε για αλλαγή ύψους προεπισκόπησης"></div>
+            <div class="resizer" id="notepad-resizer" title="Σύρετε για αλλαγή πλάτους προεπισκόπησης"></div>
             <div class="notepad-preview-outer" id="notepad-preview-outer">
                 <div class="notepad-preview-header">
                     <span class="notepad-preview-label">Ζωντανή προεπισκόπηση (phpBB + KaTeX)</span>
+                    <button class="mg-nav-led" id="notepad-nav-indicator" type="button" aria-pressed="false"
+                        title="Διαισθητική πλοήγηση (← / → εντός LaTeX): ΑΝΕΝΕΡΓΗ — Κάντε κλικ στην προεπισκόπηση για ενεργοποίηση (Alt+I στις Ρυθμίσεις)">
+                        <span class="mg-nav-dot" aria-hidden="true"></span>
+                        <span>Πλοήγηση</span>
+                    </button>
                     <div class="notepad-scale-control" role="group" aria-label="Μέγεθος προεπισκόπησης σημειωματάριου">
                         <button class="auto-badge active" id="notepad-preview-inline-auto-badge" type="button"
-                            aria-pressed="true" title="Αυτόματη κλιμάκωση προεπισκόπησης">AUTO</button>
+                            aria-pressed="true" title="Αυτόματη κλιμάκωση προεπισκόπησης (Alt+0)">AUTO</button>
                         <button id="notepad-preview-inline-zoom-out" type="button"
-                            title="Μικρότερη προεπισκόπηση">Aa−</button>
+                            title="Μικρότερη προεπισκόπηση (Alt+-)">Aa−</button>
                         <input type="number" id="notepad-preview-inline-zoom-label" min="65" max="240" step="1"
                             value="100" title="Μέγεθος προεπισκόπησης (%)">
                         <button id="notepad-preview-inline-zoom-in" type="button"
-                            title="Μεγαλύτερη προεπισκόπηση">Aa+</button>
+                            title="Μεγαλύτερη προεπισκόπηση (Alt+=)">Aa+</button>
+                        <button type="button" class="notepad-reader-edit-btn" id="notepad-reader-edit-btn" aria-pressed="false"
+                            title="Ενεργοποίηση/Απενεργοποίηση επεξεργασίας σημειωματάριου στην οθόνη ανάγνωσης (Alt+W)">✏️
+                            Επεξεργασία</button>
                         <button type="button" class="notepad-reader-btn" id="notepad-reader-btn" aria-pressed="false"
                             title="Λειτουργία Ανάγνωσης — Πλήρης οθόνη ζωντανής προεπισκόπησης (Alt+F)">📖
                             Ανάγνωση</button>
@@ -360,7 +515,7 @@
                 title="Αντιγραφή κειμένου σημειωματάριου (Alt+C)">Αντιγραφή</button>
             <div class="export-dropdown">
                 <button class="action ghost export-more-trigger" id="notepad-export-btn" type="button"
-                    title="Επιλογές εξαγωγής σημειωματάριου">Εξαγωγή ▾</button>
+                    title="Επιλογές εξαγωγής σημειωματάριου (Alt+Z)">Εξαγωγή ▾</button>
                 <div class="export-menu" id="notepad-export-menu">
                     <button type="button" data-export-fmt="png">Εικόνα PNG (.png)</button>
                     <button type="button" data-export-fmt="png-transparent">PNG (Διαφανές φόντο)</button>
@@ -440,7 +595,9 @@
             <button id="header-btn-size-up" type="button">A+</button>
         </div>
         <button class="syntax-toggle-btn active" id="syntax-highlight-toggle" type="button"
-            aria-pressed="true">Χρωματισμός Σύνταξης: ΕΝΕΡΓΟΣ</button>
+            aria-pressed="true" title="Ενεργοποίηση/Απενεργοποίηση χρωματισμού σύνταξης (Alt+H)">Χρωματισμός Σύνταξης: ΕΝΕΡΓΟΣ</button>
+        <button class="syntax-toggle-btn active" id="intuitive-nav-toggle" type="button"
+            aria-pressed="true" title="Ενεργοποίηση/Απενεργοποίηση διαισθητικής πλοήγησης LaTeX με κλικ στην προεπισκόπηση (Alt+I)">Διαισθητική Πλοήγηση: ΕΝΕΡΓΗ</button>
 
         <div class="settings-donate-wrap">
             <div class="settings-donate-card active" id="settings-donate-card">

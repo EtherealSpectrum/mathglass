@@ -115,6 +115,10 @@ body.is-resizing {
   user-select: none;
 }
 
+body.notepad-open.is-resizing {
+  cursor: ew-resize;
+}
+
 body.is-resizing * {
   pointer-events: none;
 }
@@ -1389,6 +1393,11 @@ button.ghost:active {
   box-shadow: none !important;
 }
 
+:root[data-transparent="true"] .notepad-preview-outer {
+  border-top: none !important;
+  border-left: 1px solid rgba(17, 18, 20, 0.18) !important;
+}
+
 :root[data-theme="light"][data-transparent="true"] .preview-outer,
 :root[data-theme="light"][data-transparent="true"] .notepad-preview-outer {
   -webkit-backdrop-filter: blur(12px) saturate(140%);
@@ -1400,6 +1409,10 @@ button.ghost:active {
   background: rgba(var(--renderer-rgb), max(0.24, var(--panel-alpha))) !important;
   background-color: rgba(var(--renderer-rgb), max(0.24, var(--panel-alpha))) !important;
   border-top-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+:root[data-theme="dark"][data-transparent="true"] .notepad-preview-outer {
+  border-left-color: rgba(255, 255, 255, 0.12) !important;
 }
 
 :root[data-transparent="true"] .preview-wrap,
@@ -1584,8 +1597,10 @@ body.notepad-open>footer {
 .notepad-body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: stretch;
   overflow: hidden;
 }
 
@@ -1618,9 +1633,36 @@ textarea#notepad-input:focus {
   background: var(--bg);
 }
 
+#notepad-resizer {
+  width: 10px;
+  height: auto;
+  min-height: 0;
+  cursor: ew-resize;
+  border-top: none;
+  border-bottom: none;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  margin: 0 -1px;
+}
+
+#notepad-resizer::after {
+  width: 4px;
+  height: 30px;
+}
+
+#notepad-resizer:hover::after,
+#notepad-resizer.active::after {
+  width: 4px;
+  height: 40px;
+}
+
 .notepad-preview-outer {
-  flex: 0 1 var(--notepad-preview-height, 180px);
-  min-height: 70px;
+  flex: 0 0 var(--notepad-preview-width, 50%);
+  width: var(--notepad-preview-width, 50%);
+  min-width: 140px;
+  max-width: calc(100% - 120px);
+  min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--renderer-bg);
@@ -1629,10 +1671,11 @@ textarea#notepad-input:focus {
 
 .notepad-preview-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 5px 12px;
+  gap: 4px 8px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
@@ -1641,6 +1684,8 @@ textarea#notepad-input:focus {
   font-size: 11px;
   font-weight: 700;
   color: var(--ink-soft);
+  min-width: 0;
+  flex: 1 1 90px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1818,7 +1863,11 @@ textarea#notepad-input:focus {
 }
 
 #notepad-highlight-wrap {
-  min-height: 70px;
+  flex: 1 1 0;
+  width: auto;
+  min-width: 120px;
+  min-height: 0;
+  height: 100%;
 }
 
 .highlight-layer {

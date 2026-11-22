@@ -164,7 +164,8 @@
 /* =========================================================
    Λειτουργία Ανάγνωσης — Πλήρης Οθόνη Ζωντανής Προεπισκόπησης
    ========================================================= */
-.notepad-reader-btn {
+.notepad-scale-control button.notepad-reader-btn,
+.notepad-scale-control button.notepad-reader-edit-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -178,29 +179,36 @@
   font-weight: 600;
   cursor: pointer;
   margin-left: 4px;
+  white-space: nowrap;
   transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
 }
 
-.notepad-reader-btn:hover,
-.notepad-reader-btn.active {
+body:not(.notepad-reader-mode) .notepad-scale-control button.notepad-reader-edit-btn {
+  display: none !important;
+}
+
+.notepad-scale-control button.notepad-reader-btn:hover,
+.notepad-scale-control button.notepad-reader-btn.active,
+.notepad-scale-control button.notepad-reader-edit-btn:hover,
+.notepad-scale-control button.notepad-reader-edit-btn.active {
   border-color: var(--accent);
   background: var(--accent);
   color: #ffffff;
 }
 
-body.notepad-reader-mode #toolbars-container,
 body.notepad-reader-mode>main,
 body.notepad-reader-mode>footer,
-body.notepad-reader-mode .notepad-bar,
-body.notepad-reader-mode .phpbb-toolbar,
-body.notepad-reader-mode .notepad-templates-bar,
-body.notepad-reader-mode #notepad-highlight-wrap,
-body.notepad-reader-mode #notepad-resizer,
-body.notepad-reader-mode .notepad-footer {
+body.notepad-reader-mode:not(.notepad-reader-edit) #toolbars-container,
+body.notepad-reader-mode:not(.notepad-reader-edit) .notepad-bar,
+body.notepad-reader-mode:not(.notepad-reader-edit) .phpbb-toolbar,
+body.notepad-reader-mode:not(.notepad-reader-edit) .notepad-templates-bar,
+body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-highlight-wrap,
+body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-resizer,
+body.notepad-reader-mode:not(.notepad-reader-edit) .notepad-footer {
   display: none !important;
 }
 
-body.notepad-reader-mode #notepad-view {
+body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-view {
   display: flex !important;
   position: fixed !important;
   inset: 0 !important;
@@ -216,15 +224,68 @@ body.notepad-reader-mode .notepad-body {
   height: 100% !important;
 }
 
-body.notepad-reader-mode #notepad-preview-outer {
+body.notepad-reader-mode #notepad-preview-outer,
+body.notepad-reader-mode #notepad-preview-outer.hidden {
   display: flex !important;
   flex-direction: column !important;
+  max-height: none !important;
+  max-width: none !important;
+}
+
+body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer,
+body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer.hidden {
   position: fixed !important;
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
-  max-height: none !important;
   z-index: 9999 !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+body.notepad-reader-mode.notepad-reader-edit #notepad-view {
+  display: flex !important;
+  position: static !important;
+  inset: auto !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  height: auto !important;
+  z-index: auto !important;
+}
+
+body.notepad-reader-mode.notepad-reader-edit #notepad-highlight-wrap {
+  position: fixed !important;
+  left: -9999px !important;
+  top: 0 !important;
+  width: min(860px, 92vw) !important;
+  min-width: 320px !important;
+  height: 460px !important;
+  min-height: 240px !important;
+  max-height: 75vh !important;
+  opacity: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  flex: 0 0 auto !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+body.notepad-reader-mode.notepad-reader-edit #notepad-resizer {
+  display: none !important;
+}
+
+body.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer,
+body.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer.hidden {
+  position: static !important;
+  inset: auto !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  z-index: auto !important;
   border: none !important;
   border-radius: 0 !important;
 }
@@ -281,6 +342,10 @@ body.notepad-reader-mode #notepad-preview-wrap {
   flex: 1 1 auto !important;
   overflow-y: auto !important;
   padding: 28px 24px 56px !important;
+}
+
+body.notepad-reader-mode.notepad-reader-edit #notepad-preview-wrap {
+  padding: 18px 20px 36px !important;
 }
 
 body.notepad-reader-mode #notepad-preview {
