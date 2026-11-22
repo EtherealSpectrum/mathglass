@@ -2,8 +2,24 @@ import { KEYS, MSG } from '../core/constants.js';
 import { $, on, clamp, rafThrottle } from '../core/dom.js';
 import { get, set, mirrorGet, mirrorSet } from '../core/storage.js';
 import { translateLatexErrorToGreek } from '../core/errors.js';
-import { computeCtrlArrowTarget, extractAllMathRangesForNav } from '../core/latex-nav.js';
-import { resolveLatexOffsetAtPoint, caretPointFromXY, getTextOffsetInElement } from '../core/latex-click.js';
+import {
+  computeCtrlArrowTarget,
+  computeSmartLatexArrowTarget,
+  computeTabJumpTarget,
+  extractAllMathRangesForNav,
+  findPrecedingFractionOperandStart,
+  replaceRangePreservingUndo,
+} from '../core/latex-nav.js';
+import {
+  resolveLatexOffsetAtPoint,
+  caretPointFromXY,
+  getTextOffsetInElement,
+  applyLatexSelectionHighlight,
+  clearLatexSelectionHighlight,
+  applyActiveSlotHighlight,
+  clearActiveSlotHighlight,
+  findActiveStructuralSlot,
+} from '../core/latex-click.js';
 import { state } from './settings.js';
 import {
   renderPartialLatexHtml,
@@ -17,10 +33,14 @@ import { wrappedCode, copyText, insertTextToPage } from './actions.js';
 
 let notepadOpen = false;
 let autoDollarWrap = true;
+let notepadPreviewNavActive = false;
+let pendingReaderNavScroll = false;
 let lastProgWrap = { left: -1, top: -1 };
 let lastProgMath = { el: null, left: -1 };
 let progScrolling = false;
 let lastCursorPos = -1;
+let lastSelStart = -1;
+let lastSelEnd = -1;
 let lastRenderedSrc = null;
 let lastRenderedTheme = null;
 let activeMathEl = null;
@@ -30,13 +50,41 @@ const mathHtmlCache = new Map();
 const POS_MARK_RE = /\uFFF0POS:(\d+)\uFFF1/g;
 const CARET_MARK = '\uFFF2CARET\uFFF3';
 const CARET_MARK_RE = /\uFFF2CARET\uFFF3/g;
+const SEL_START_MARK = '\uFFF4SEL_S\uFFF5';
+const SEL_END_MARK = '\uFFF4SEL_E\uFFF5';
+const SEL_MARK_RE = /\uFFF4SEL_[SE]\uFFF5/g;
 
 export function isNotepadOpen() { return notepadOpen; }
 export function isAutoDollarWrapEnabled() { return autoDollarWrap; }
 
+const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
+
+function isEscapedAt(str, idx) {
+  let b = 0;
+  for (let k = idx - 1; k >= 0 && str[k] === '\\'; k--) b++;
+  return (b % 2) === 1;
+}
+
+function findMathTokenAt(src, pos) {
+  const ranges = extractAllMathRangesForNav(tokenizeHybridLatex(src));
+  for (const r of ranges) {
+    if (pos >= r.contentStart && pos <= r.contentEnd) return r;
+  }
+  return null;
+}
+
 function getActiveCursorPos(ta) {
   if (!ta) return 0;
   return (ta.selectionDirection === 'backward' ? ta.selectionStart : ta.selectionEnd) ?? ta.value.length;
+}
+
+function getSelectionBounds(ta) {
+  if (!ta) return { start: 0, end: 0, active: false };
+  const s = ta.selectionStart ?? 0;
+  const e = ta.selectionEnd ?? 0;
+  const start = Math.min(s, e);
+  const end = Math.max(s, e);
+  return { start, end, active: end > start };
 }
 
 function notifyState() {
@@ -289,7 +337,7 @@ function escHtml(s) {
 }
 
 function stripPosMarkers(str) {
-  return String(str).replace(POS_MARK_RE, '').replace(CARET_MARK_RE, '');
+  return String(str).replace(POS_MARK_RE, '').replace(CARET_MARK_RE, '').replace(SEL_MARK_RE, '');
 }
 
 const BBCODE_SPAN_RE = /\[(?:\/?(?:b|i|u|s|quote|code|list|img|url|size|color|center|ggb|hide|table|tr|th|td)|\*)(?:=[^\]]*)?\]/gi;
@@ -312,8 +360,18 @@ function safePlainCaretOffset(rawText, localPos) {
   return pos;
 }
 
-function annotateTextOffsets(rawText, baseOffset, localCaretOffset = null) {
+function annotateTextOffsets(rawText, baseOffset, localCaretOffset = null, localSel = null) {
   const safeCaret = typeof localCaretOffset === 'number' ? safePlainCaretOffset(rawText, localCaretOffset) : null;
+  let safeSelStart = null;
+  let safeSelEnd = null;
+  if (localSel && localSel.end > localSel.start) {
+    const ss = safePlainCaretOffset(rawText, localSel.start);
+    const se = safePlainCaretOffset(rawText, localSel.end);
+    if (se > ss) {
+      safeSelStart = ss;
+      safeSelEnd = se;
+    }
+  }
   const markBefore = new Set([0]);
   for (let i = 0; i < rawText.length; i++) {
     if (rawText[i] === '\n') markBefore.add(i + 1);
@@ -327,8 +385,10 @@ function annotateTextOffsets(rawText, baseOffset, localCaretOffset = null) {
 
   let out = '';
   for (let i = 0; i <= rawText.length; i++) {
+    if (safeSelEnd === i) out += SEL_END_MARK;
     if (markBefore.has(i)) out += `\uFFF0POS:${baseOffset + i}\uFFF1`;
     if (safeCaret === i) out += CARET_MARK;
+    if (safeSelStart === i) out += SEL_START_MARK;
     if (i < rawText.length) out += rawText[i];
   }
   return out;
@@ -390,7 +450,8 @@ function renderSingleMathInner(rawMath, displayMode, isLight, cursorOffset = nul
 }
 
 export function renderPhpbbHtml(input, isLight, options = {}) {
-  const { trackCursor = false, caretOffset = null } = options;
+  const { trackCursor = false, caretOffset = null, selection = null } = options;
+  const hasSelection = Boolean(selection && selection.end > selection.start);
   const tokens = tokenizeHybridLatex(input);
   const slots = [];
   let combined = '';
@@ -400,7 +461,14 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
       const idx = slots.length;
       const trimmed = tok.content.trim();
       let codeInnerHtml = escHtml(trimmed);
-      if (trackCursor && typeof caretOffset === 'number' && caretOffset >= tok.start && caretOffset <= tok.end) {
+      if (hasSelection && selection.start < tok.end && selection.end > tok.start) {
+        const leadWs = tok.content.length - tok.content.trimStart().length;
+        const cs = clamp(selection.start - (tok.start + 6) - leadWs, 0, trimmed.length);
+        const ce = clamp(selection.end - (tok.start + 6) - leadWs, 0, trimmed.length);
+        if (ce > cs) {
+          codeInnerHtml = escHtml(trimmed.slice(0, cs)) + SEL_START_MARK + escHtml(trimmed.slice(cs, ce)) + SEL_END_MARK + escHtml(trimmed.slice(ce));
+        }
+      } else if (trackCursor && typeof caretOffset === 'number' && caretOffset >= tok.start && caretOffset <= tok.end) {
         const leadWs = tok.content.length - tok.content.trimStart().length;
         const innerCaret = clamp(caretOffset - (tok.start + 6) - leadWs, 0, trimmed.length);
         codeInnerHtml = escHtml(trimmed.slice(0, innerCaret)) + CARET_MARK + escHtml(trimmed.slice(innerCaret));
@@ -408,11 +476,17 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
       slots.push(`<pre class="phpbb-code" data-np-start="${tok.start}" data-np-end="${tok.end}">${codeInnerHtml}</pre>`);
       combined += `@@NP_SLOT_${idx}@@`;
     } else if (tok.type === 'text') {
-      const localCaret = (trackCursor && typeof caretOffset === 'number' && caretOffset >= tok.start && caretOffset <= tok.end)
+      const localCaret = (!hasSelection && trackCursor && typeof caretOffset === 'number' && caretOffset >= tok.start && caretOffset <= tok.end)
         ? (caretOffset - tok.start)
         : null;
-      const textWithMarkers = trackCursor
-        ? annotateTextOffsets(tok.content, tok.start, localCaret)
+      const localSel = (hasSelection && selection.start < tok.end && selection.end > tok.start)
+        ? {
+          start: clamp(selection.start - tok.start, 0, tok.content.length),
+          end: clamp(selection.end - tok.start, 0, tok.content.length),
+        }
+        : null;
+      const textWithMarkers = (trackCursor || localSel)
+        ? annotateTextOffsets(tok.content, tok.start, localCaret, localSel)
         : tok.content;
       combined += escHtml(textWithMarkers.replace(/\\\$/g, '$'));
     } else {
@@ -459,19 +533,25 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
   html = html.replace(/\[url\]((?:https?:\/\/|mailto:)[^\[]+)\[\/url\]/gi, (_, href) => {
     const hadCaret = CARET_MARK_RE.test(href);
     CARET_MARK_RE.lastIndex = 0;
+    const hadSelStart = href.includes(SEL_START_MARK);
+    const hadSelEnd = href.includes(SEL_END_MARK);
     const cleanHref = stripPosMarkers(href).trim();
-    return `<a href="${cleanHref}" target="_blank" rel="noopener noreferrer">${cleanHref}</a>${hadCaret ? CARET_MARK : ''}`;
+    return `${hadSelStart ? SEL_START_MARK : ''}<a href="${cleanHref}" target="_blank" rel="noopener noreferrer">${cleanHref}</a>${hadSelEnd ? SEL_END_MARK : ''}${hadCaret ? CARET_MARK : ''}`;
   });
   html = html.replace(/\[img\](https?:\/\/[^\[]+)\[\/img\]/gi, (_, src) => {
     const hadCaret = CARET_MARK_RE.test(src);
     CARET_MARK_RE.lastIndex = 0;
+    const hadSelStart = src.includes(SEL_START_MARK);
+    const hadSelEnd = src.includes(SEL_END_MARK);
     const cleanSrc = stripPosMarkers(src).trim();
-    return `<img src="${cleanSrc}" alt="Εικόνα phpBB" loading="lazy">${hadCaret ? CARET_MARK : ''}`;
+    return `${hadSelStart ? SEL_START_MARK : ''}<img src="${cleanSrc}" alt="Εικόνα phpBB" loading="lazy">${hadSelEnd ? SEL_END_MARK : ''}${hadCaret ? CARET_MARK : ''}`;
   });
   html = html.replace(/\[ggb\]([\s\S]*?)\[\/ggb\]/gi, (_, id) => {
     const hadCaret = CARET_MARK_RE.test(id);
     CARET_MARK_RE.lastIndex = 0;
-    return `<div class="phpbb-ggb">📐 GeoGebra: <b>${stripPosMarkers(id).trim()}</b></div>${hadCaret ? CARET_MARK : ''}`;
+    const hadSelStart = id.includes(SEL_START_MARK);
+    const hadSelEnd = id.includes(SEL_END_MARK);
+    return `${hadSelStart ? SEL_START_MARK : ''}<div class="phpbb-ggb">📐 GeoGebra: <b>${stripPosMarkers(id).trim()}</b></div>${hadSelEnd ? SEL_END_MARK : ''}${hadCaret ? CARET_MARK : ''}`;
   });
 
   html = replaceNestedTag(
@@ -507,9 +587,24 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
       .replace(/\[tr\]/gi, '<tr>').replace(/\[\/tr\]/gi, '</tr>')
       .replace(/\[th\]/gi, '<th>').replace(/\[\/th\]/gi, '</th>')
       .replace(/\[td\]/gi, '<td>').replace(/\[\/td\]/gi, '</td>');
-    clean = clean.replace(/(<\/?(?:tr|table)[^>]*>)\s*(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3|\s)+(?=<\/?(?:tr|th|td|table))/gi, '$1');
-    clean = clean.replace(/^(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3|\s)+(?=<tr)/i, '');
-    return `<table class="phpbb-table">${clean}</table>`;
+    let leadSel = '';
+    clean = clean.replace(/^(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3|\uFFF4SEL_[SE]\uFFF5|\s)+(?=<tr)/i, m => {
+      const selMarks = m.match(SEL_MARK_RE);
+      if (selMarks) leadSel += selMarks.join('');
+      return '';
+    });
+    clean = clean.replace(/(<\/?(?:tr|table)[^>]*>)(\s*(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3|\uFFF4SEL_[SE]\uFFF5|\s)+)(?=<\/?(?:tr|th|td|table))/gi, (_m, tag, between) => {
+      const selMarks = between.match(SEL_MARK_RE);
+      return tag + (selMarks ? selMarks.join('') : '');
+    });
+    clean = clean.replace(/(<\/tr>)((?:\uFFF4SEL_[SE]\uFFF5)+)(<tr>)/gi, '$1$3$2');
+    clean = clean.replace(/(<tr>)((?:\uFFF4SEL_[SE]\uFFF5)+)(<(?:td|th)>)/gi, '$1$3$2');
+    let trailSel = '';
+    clean = clean.replace(/(<\/tr>)((?:\uFFF4SEL_[SE]\uFFF5)+)$/i, (_m, tag, marks) => {
+      trailSel = marks;
+      return tag;
+    });
+    return `${leadSel}<table class="phpbb-table">${clean}</table>${trailSel}`;
   });
 
   html = html.replace(/\[list(=1|=a|=i)?\]([\s\S]*?)\[\/list\]/gi, (_, listType, inner) => {
@@ -517,29 +612,97 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
     const typeAttr = listType === '=a' ? ' type="a"' : listType === '=i' ? ' type="i"' : '';
     const chunks = inner.split(/\[\*\]/i);
     let itemsHtml = '';
+    let leadSel = '';
+    let trailSel = '';
     if (chunks.length > 1) {
-      const validChunks = chunks.slice(1).map(s => s.trim()).filter(s => stripPosMarkers(s).length > 0 || s.includes('\uFFF0POS:') || s.includes(CARET_MARK));
+      const preMarks = chunks[0].match(SEL_MARK_RE);
+      if (preMarks) leadSel = preMarks.join('');
+      const validChunks = [];
+      for (const rawC of chunks.slice(1)) {
+        const c = rawC.trim();
+        if (stripPosMarkers(c).length > 0 || c.includes('\uFFF0POS:') || c.includes(CARET_MARK)) {
+          validChunks.push(c);
+        } else {
+          const stray = c.match(SEL_MARK_RE);
+          if (stray) trailSel += stray.join('');
+        }
+      }
       itemsHtml = validChunks.map(p => `<li>${p}</li>`).join('');
     } else {
       itemsHtml = `<li>${inner.trim()}</li>`;
     }
-    return `<${tag}${typeAttr}>${itemsHtml}</${tag}>`;
+    return `${leadSel}<${tag}${typeAttr}>${itemsHtml}</${tag}>${trailSel}`;
   });
 
   html = html.replace(/@@NP_SLOT_(\d+)@@/g, (_, idx) => slots[Number(idx)] || '');
 
-  html = html.replace(/\r?\n(?=(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3)*<(?:div class="(?:np-math-display|phpbb-ggb|phpbb-center)"|blockquote\b|pre class="phpbb-code"|details class="phpbb-hide"|ul\b|ol\b|table class="phpbb-table"))/g, '');
-  html = html.replace(/(<\/(?:div|blockquote|pre|details|ul|ol|table)>(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3)*)(?:\r?\n)/g, '$1');
+  html = html.replace(/\r?\n(?=(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3|\uFFF4SEL_[SE]\uFFF5)*<(?:div class="(?:np-math-display|phpbb-ggb|phpbb-center)"|blockquote\b|pre class="phpbb-code"|details class="phpbb-hide"|ul\b|ol\b|table class="phpbb-table"))/g, '');
+  html = html.replace(/(<\/(?:div|blockquote|pre|details|ul|ol|table)>(?:\uFFF0POS:\d+\uFFF1|\uFFF2CARET\uFFF3|\uFFF4SEL_[SE]\uFFF5)*)(?:\r?\n)/g, '$1');
 
   if (trackCursor) {
     html = html.replace(POS_MARK_RE, '<span class="np-pos" data-pos="$1" aria-hidden="true"></span>');
-    html = html.replace(CARET_MARK_RE, typeof caretOffset === 'number' ? '<span class="mg-np-text-caret" aria-hidden="true"></span>' : '');
+    html = html.replace(CARET_MARK_RE, !hasSelection && typeof caretOffset === 'number' ? '<span class="mg-np-text-caret" aria-hidden="true"></span>' : '');
   } else {
     html = html.replace(POS_MARK_RE, '');
     html = html.replace(CARET_MARK_RE, '');
   }
 
+  if (hasSelection) {
+    html = html
+      .replace(/\uFFF4SEL_S\uFFF5/g, '<span class="np-sel-start" aria-hidden="true"></span>')
+      .replace(/\uFFF4SEL_E\uFFF5/g, '<span class="np-sel-end" aria-hidden="true"></span>');
+  } else {
+    html = html.replace(SEL_MARK_RE, '');
+  }
+
   return html;
+}
+
+function applyPlainSelectionHighlight(previewEl) {
+  if (!previewEl) return;
+  const starts = previewEl.querySelectorAll('.np-sel-start');
+  const ends = previewEl.querySelectorAll('.np-sel-end');
+  if (!starts.length && !ends.length) return;
+
+  let inSel = false;
+  const textNodesToWrap = [];
+
+  const walk = node => {
+    if (!node) return;
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node;
+      if (el.classList.contains('np-sel-start')) { inSel = true; return; }
+      if (el.classList.contains('np-sel-end')) { inSel = false; return; }
+      if (
+        el.classList.contains('np-math-display') ||
+        el.classList.contains('np-math-inline') ||
+        el.classList.contains('katex-mathml') ||
+        el.classList.contains('mg-sel-overlay') ||
+        el.classList.contains('mg-np-text-caret') ||
+        el.classList.contains('np-pos')
+      ) {
+        return;
+      }
+      for (let i = 0; i < el.childNodes.length; i++) {
+        walk(el.childNodes[i]);
+      }
+      return;
+    }
+    if (node.nodeType === Node.TEXT_NODE && inSel && node.nodeValue.length > 0) {
+      textNodesToWrap.push(node);
+    }
+  };
+
+  walk(previewEl);
+
+  for (const tn of textNodesToWrap) {
+    const mark = document.createElement('mark');
+    mark.className = 'mg-np-sel';
+    tn.parentNode?.replaceChild(mark, tn);
+    mark.appendChild(tn);
+  }
+  starts.forEach(el => el.remove());
+  ends.forEach(el => el.remove());
 }
 
 function findBestPosAnchor(previewEl, cursorPos) {
@@ -695,6 +858,7 @@ function scrollRectIntoWrap(previewWrap, rect, padX = 28, padY = 18) {
 function restoreActiveMathBlock() {
   if (activeMathEl && activeMathEl.isConnected) {
     activeMathEl.classList.remove('np-math-active');
+    clearActiveSlotHighlight(activeMathEl);
     const clean = cleanMathHtmlMap.get(activeMathEl);
     if (typeof clean === 'string') {
       activeMathEl.innerHTML = clean;
@@ -722,16 +886,72 @@ function updateNotepadCursorTracking(shouldScroll = false) {
 
   const src = inputEl.value;
   const cursorPos = getActiveCursorPos(inputEl);
+  const sel = getSelectionBounds(inputEl);
   lastCursorPos = cursorPos;
+  lastSelStart = sel.start;
+  lastSelEnd = sel.end;
   const isLight = document.documentElement.getAttribute('data-theme') === 'light';
   const prevWrapLeft = previewWrap.scrollLeft;
   const prevWrapTop = previewWrap.scrollTop;
 
   if (!src.trim()) {
     restoreActiveMathBlock();
+    previewEl.querySelectorAll('.mg-np-math-selected').forEach(el => el.classList.remove('mg-np-math-selected'));
+    clearLatexSelectionHighlight(previewEl);
+    clearActiveSlotHighlight(previewEl);
     lastProgWrap = { left: prevWrapLeft, top: prevWrapTop };
     return;
   }
+
+  previewEl.querySelectorAll('.mg-np-math-selected').forEach(el => el.classList.remove('mg-np-math-selected'));
+
+  if (sel.active) {
+    restoreActiveMathBlock();
+    clearActiveSlotHighlight(previewEl);
+    previewEl.querySelectorAll('.mg-np-text-caret').forEach(el => el.remove());
+
+    const mathBlocks = previewEl.querySelectorAll('.np-math-display[data-np-start][data-np-end], .np-math-inline[data-np-start][data-np-end]');
+    for (const b of mathBlocks) {
+      const tokStart = Number(b.getAttribute('data-np-start'));
+      const tokEnd = Number(b.getAttribute('data-np-end'));
+      const cs = Number(b.getAttribute('data-np-cstart'));
+      const ce = Number(b.getAttribute('data-np-cend'));
+      const disp = b.getAttribute('data-np-display') === '1';
+
+      if (sel.start <= tokStart && sel.end >= tokEnd) {
+        clearLatexSelectionHighlight(b);
+        b.classList.add('mg-np-math-selected');
+      } else if (sel.start <= cs && sel.end >= ce && ce > cs) {
+        clearLatexSelectionHighlight(b);
+        b.classList.add('mg-np-math-selected');
+      } else if (sel.start < ce && sel.end > cs) {
+        const rawMath = src.slice(cs, ce);
+        if (rawMath.trim()) {
+          applyLatexSelectionHighlight(
+            rawMath,
+            Math.max(0, sel.start - cs),
+            Math.min(ce - cs, sel.end - cs),
+            b,
+            { displayMode: disp, alignLeft: false, buildBalancedCandidate }
+          );
+        }
+      } else {
+        clearLatexSelectionHighlight(b);
+      }
+    }
+
+    const inReaderOnly = document.body.classList.contains('notepad-reader-mode') && !document.body.classList.contains('notepad-reader-edit');
+    if (!shouldScroll || state.notepadUserScrolled || inReaderOnly) {
+      progScrolling = true;
+      previewWrap.scrollLeft = prevWrapLeft;
+      previewWrap.scrollTop = prevWrapTop;
+      lastProgWrap = { left: previewWrap.scrollLeft, top: previewWrap.scrollTop };
+      requestAnimationFrame(() => { progScrolling = false; });
+    }
+    return;
+  }
+
+  clearLatexSelectionHighlight(previewEl);
 
   let matchedMath = null;
   let matchedCode = null;
@@ -766,6 +986,14 @@ function updateNotepadCursorTracking(shouldScroll = false) {
       const disp = matchedMath.getAttribute('data-np-display') === '1';
       matchedMath.innerHTML = renderSingleMathInner(rawMath, disp, isLight, cursorPos - cs);
       caretEl = markCaretElement(matchedMath);
+      applyActiveSlotHighlight(rawMath, cursorPos - cs, matchedMath, {
+        displayMode: disp,
+        alignLeft: false,
+        buildBalancedCandidate,
+        injectLatexCaret,
+      });
+    } else {
+      clearActiveSlotHighlight(matchedMath);
     }
     matchedMath.classList.add('np-math-active');
     activeMathEl = matchedMath;
@@ -777,7 +1005,8 @@ function updateNotepadCursorTracking(shouldScroll = false) {
     }
   }
 
-  if (!shouldScroll || state.notepadUserScrolled || document.body.classList.contains('notepad-reader-mode')) {
+  const inReaderOnly = document.body.classList.contains('notepad-reader-mode') && !document.body.classList.contains('notepad-reader-edit');
+  if (!shouldScroll || !state.previewFollowEnabled || state.notepadUserScrolled || inReaderOnly) {
     progScrolling = true;
     previewWrap.scrollLeft = prevWrapLeft;
     previewWrap.scrollTop = prevWrapTop;
@@ -868,18 +1097,21 @@ export function renderHybridPreview(force = false, shouldScroll = false) {
 
   const src = inputEl.value;
   const cursorPos = getActiveCursorPos(inputEl);
+  const sel = getSelectionBounds(inputEl);
   const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-  const follow = Boolean(shouldScroll) && !state.notepadUserScrolled;
+  const follow = Boolean(shouldScroll) && Boolean(state.previewFollowEnabled) && !state.notepadUserScrolled;
   const prevWrapLeft = previewWrap ? previewWrap.scrollLeft : 0;
   const prevWrapTop = previewWrap ? previewWrap.scrollTop : 0;
 
-  if (!force && src === lastRenderedSrc && isLight === lastRenderedTheme) {
+  if (!force && src === lastRenderedSrc && isLight === lastRenderedTheme && sel.start === lastSelStart && sel.end === lastSelEnd) {
     updateNotepadCursorTracking(follow);
     return;
   }
 
   lastRenderedSrc = src;
   lastRenderedTheme = isLight;
+  lastSelStart = sel.start;
+  lastSelEnd = sel.end;
   activeMathEl = null;
 
   const openSummaries = new Set();
@@ -890,9 +1122,18 @@ export function renderHybridPreview(force = false, shouldScroll = false) {
   progScrolling = true;
   try {
     if (!src.trim()) {
-      previewEl.innerHTML = '<span class="np-placeholder">Η υβριδική προεπισκόπηση (phpBB + KaTeX) θα εμφανιστεί εδώ…</span>';
+      const inReaderEdit = document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit');
+      previewEl.innerHTML = (inReaderEdit ? '<span class="mg-np-text-caret" aria-hidden="true"></span>' : '') +
+        '<span class="np-placeholder">Η υβριδική προεπισκόπηση (phpBB + KaTeX) θα εμφανιστεί εδώ…</span>';
     } else {
-      previewEl.innerHTML = renderPhpbbHtml(src, isLight, { trackCursor: true, caretOffset: cursorPos });
+      previewEl.innerHTML = renderPhpbbHtml(src, isLight, {
+        trackCursor: !sel.active,
+        caretOffset: sel.active ? null : cursorPos,
+        selection: sel.active ? { start: sel.start, end: sel.end } : null,
+      });
+      if (sel.active) {
+        applyPlainSelectionHighlight(previewEl);
+      }
       if (openSummaries.size) {
         previewEl.querySelectorAll('details.phpbb-hide > summary').forEach((sum, idx) => {
           if (openSummaries.has(`${idx}:${sum.textContent}`)) {
@@ -918,7 +1159,7 @@ export function renderHybridPreview(force = false, shouldScroll = false) {
 function wrapInNotepad(before, after, fallback = '') {
   const ta = $('#notepad-input');
   if (!ta) return;
-  ta.focus();
+  try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
   const s = ta.selectionStart ?? ta.value.length;
   const e = ta.selectionEnd ?? ta.value.length;
   const sel = ta.value.slice(s, e);
@@ -932,8 +1173,9 @@ function wrapInNotepad(before, after, fallback = '') {
   } else {
     ta.setSelectionRange(s + text.length, s + text.length);
   }
-  state.notepadUserScrolled = false;
-  renderHybridPreview(true, true);
+  const follow = Boolean(state.previewFollowEnabled);
+  if (follow) state.notepadUserScrolled = false;
+  renderHybridPreview(true, follow);
   window.__refreshSyntaxHighlight?.();
   window.__refreshNotepadCaret?.();
   set(KEYS.notepadText, ta.value);
@@ -956,9 +1198,14 @@ export function init(ac) {
   if (!ta || !pvOuter) return;
 
   window.__renderHybridPreview = (force = false, shouldScroll = false) => renderHybridPreview(force, shouldScroll);
+  window.__setNotepadPreviewNav = active => {
+    notepadPreviewNavActive = Boolean(active && state.intuitiveNavEnabled);
+    window.__syncNavIndicators?.();
+  };
+  window.__isNotepadPreviewNavActive = () => Boolean(state.intuitiveNavEnabled && notepadPreviewNavActive);
   let pendingScroll = false;
   const flushRender = rafThrottle(() => {
-    const shouldScroll = pendingScroll;
+    const shouldScroll = pendingScroll && Boolean(state.previewFollowEnabled);
     pendingScroll = false;
     renderHybridPreview(false, shouldScroll);
   });
@@ -981,15 +1228,15 @@ export function init(ac) {
   if (typeof cachedAd === 'boolean') autoDollarWrap = cachedAd;
   syncAutoDollarBtn();
 
-  const applySavedNotepadHeight = h => {
-    if (!(typeof h === 'number' && h > 60)) return;
+  const applySavedNotepadWidth = w => {
+    if (!(typeof w === 'number' && w >= 120)) return;
     const bodyEl = $('.notepad-body');
-    const maxH = Math.max(90, (bodyEl?.clientHeight || innerHeight) - 85);
-    const clamped = clamp(Math.round(h), 70, maxH);
-    document.documentElement.style.setProperty('--notepad-preview-height', clamped + 'px');
+    const maxW = Math.max(160, (bodyEl?.clientWidth || innerWidth) - 120);
+    const clamped = clamp(Math.round(w), 140, maxW);
+    document.documentElement.style.setProperty('--notepad-preview-width', clamped + 'px');
   };
 
-  get([KEYS.notepadText, KEYS.notepadHeight, KEYS.notepadAutoDollar]).then(r => {
+  get([KEYS.notepadText, KEYS.notepadWidth, KEYS.notepadAutoDollar]).then(r => {
     if (typeof r[KEYS.notepadAutoDollar] === 'boolean') {
       autoDollarWrap = r[KEYS.notepadAutoDollar];
       syncAutoDollarBtn();
@@ -1000,8 +1247,8 @@ export function init(ac) {
       window.__refreshSyntaxHighlight?.();
       window.__refreshNotepadCaret?.();
     }
-    if (typeof r[KEYS.notepadHeight] === 'number') {
-      applySavedNotepadHeight(r[KEYS.notepadHeight]);
+    if (typeof r[KEYS.notepadWidth] === 'number') {
+      applySavedNotepadWidth(r[KEYS.notepadWidth]);
     }
   });
 
@@ -1013,37 +1260,278 @@ export function init(ac) {
     }, false, sig);
   }
 
+  let skipAutoWrapOnce = false;
+  let suppressAutoWrapInputScroll = false;
+
+  const maybeAutoWrapUnbracedSlot = () => {
+    const inReaderEdit = document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit');
+    if (!inReaderEdit) return false;
+    if (skipAutoWrapOnce) {
+      skipAutoWrapOnce = false;
+      return false;
+    }
+    const sel = getSelectionBounds(ta);
+    if (sel.active) return false;
+    const pos = getActiveCursorPos(ta);
+    const tok = findMathTokenAt(ta.value || '', pos);
+    if (!tok) return false;
+
+    const rawMath = ta.value.slice(tok.contentStart, tok.contentEnd);
+    const leadLen = rawMath.length - rawMath.trimStart().length;
+    const trimmed = rawMath.trim();
+    if (!trimmed) return false;
+
+    const localPos = clamp(pos - tok.contentStart - leadLen, 0, trimmed.length);
+    const slot = findActiveStructuralSlot(trimmed, localPos);
+    if (!slot || !slot.needsBraces || slot.isEmpty) return false;
+
+    const rStart = slot.replaceStart ?? slot.contentStart;
+    const rEnd = slot.replaceEnd ?? slot.contentEnd;
+    const absStart = tok.contentStart + leadLen + rStart;
+    const absEnd = tok.contentStart + leadLen + rEnd;
+    const inner = ta.value.slice(absStart, absEnd);
+    if (!inner || inner.startsWith('{')) return false;
+
+    const rel = clamp(pos - absStart, 0, inner.length);
+    suppressAutoWrapInputScroll = true;
+    replaceRangePreservingUndo(ta, absStart, absEnd, `{${inner}}`, absStart + 1 + rel, absStart + 1 + rel);
+    suppressAutoWrapInputScroll = false;
+    pendingScroll = false;
+    scheduleSave();
+    window.__refreshSyntaxHighlight?.();
+    window.__refreshNotepadCaret?.();
+    return true;
+  };
+
   on(ta, 'input', () => {
-    state.notepadUserScrolled = false;
-    pendingScroll = true;
+    if (suppressAutoWrapInputScroll) return;
+    const follow = Boolean(state.previewFollowEnabled);
+    if (follow) state.notepadUserScrolled = false;
+    pendingScroll = follow;
     flushRender();
     scheduleSave();
   }, false, sig);
 
   const syncCursorMove = rafThrottle(() => {
     if (pendingScroll) return;
+    const shouldScrollReader = pendingReaderNavScroll && Boolean(state.previewFollowEnabled);
+    pendingReaderNavScroll = false;
+    const autoWrapped = maybeAutoWrapUnbracedSlot();
     const pos = getActiveCursorPos(ta);
+    const sel = getSelectionBounds(ta);
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    if (pos === lastCursorPos && ta.value === lastRenderedSrc && isLight === lastRenderedTheme) return;
+    const srcSame = !autoWrapped && ta.value === lastRenderedSrc && isLight === lastRenderedTheme;
+    const selSame = sel.start === lastSelStart && sel.end === lastSelEnd;
+    if (srcSame && selSame && pos === lastCursorPos) return;
 
-    const matchedMath = previewEl ? findMatchedMathBlock(previewEl, pos) : null;
-    const prevWasMath = Boolean(activeMathEl && activeMathEl.isConnected);
-    if (matchedMath && ta.value === lastRenderedSrc && isLight === lastRenderedTheme) {
-      updateNotepadCursorTracking(false);
-    } else if (prevWasMath && !matchedMath && ta.value === lastRenderedSrc && isLight === lastRenderedTheme) {
-      renderHybridPreview(true, false);
-    } else {
-      renderHybridPreview(true, false);
+    if (srcSame && sel.active) {
+      const blocks = previewEl ? previewEl.querySelectorAll('.np-math-display[data-np-cstart][data-np-cend], .np-math-inline[data-np-cstart][data-np-cend]') : [];
+      let prevMathBlock = null;
+      let nextMathBlock = null;
+      for (const b of blocks) {
+        const cs = Number(b.getAttribute('data-np-cstart'));
+        const ce = Number(b.getAttribute('data-np-cend'));
+        if (lastSelEnd > lastSelStart && lastSelStart >= cs && lastSelEnd <= ce) prevMathBlock = b;
+        if (sel.start >= cs && sel.end <= ce) nextMathBlock = b;
+      }
+      const hadPlainSel = lastSelEnd > lastSelStart && !prevMathBlock;
+      if (nextMathBlock && !hadPlainSel && (prevMathBlock === nextMathBlock || lastSelStart === lastSelEnd)) {
+        updateNotepadCursorTracking(shouldScrollReader);
+        return;
+      }
     }
+
+    if (srcSame && !sel.active) {
+      const hadPlainSel = lastSelEnd > lastSelStart;
+      if (!hadPlainSel) {
+        const matchedMath = previewEl ? findMatchedMathBlock(previewEl, pos) : null;
+        const prevWasMath = Boolean(activeMathEl && activeMathEl.isConnected);
+        if (matchedMath) {
+          updateNotepadCursorTracking(shouldScrollReader);
+          return;
+        }
+        if (prevWasMath) {
+          renderHybridPreview(true, shouldScrollReader);
+          return;
+        }
+      }
+    }
+
+    renderHybridPreview(true, shouldScrollReader);
   });
 
+  on(ta, 'pointerdown', () => {
+    notepadPreviewNavActive = false;
+    window.__syncNavIndicators?.();
+  }, false, sig);
+
   on(ta, 'keydown', e => {
+    const inReaderEdit = document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit');
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+      skipAutoWrapOnce = true;
+    }
+    if (NAV_KEYS.has(e.key) && state.previewFollowEnabled) {
+      state.notepadUserScrolled = false;
+      pendingReaderNavScroll = true;
+    }
+
+    const val = ta.value || '';
+    const caretPos = getActiveCursorPos(ta);
+    const inMath = isCursorInsideKaTeX(val, caretPos);
+    const mathTok = inMath ? findMathTokenAt(val, caretPos) : null;
+    const isAltGr = e.ctrlKey && e.altKey && !e.metaKey;
+    const noMod = !e.ctrlKey && !e.metaKey && !e.altKey;
+
+    if (inReaderEdit && mathTok && (noMod || isAltGr)) {
+      const s = ta.selectionStart ?? val.length;
+      const en = ta.selectionEnd ?? s;
+      const sel = val.slice(s, en);
+      if (e.key === '/' && !isEscapedAt(val, s)) {
+        e.preventDefault();
+        if (en > s) {
+          const ins = `\\frac{${sel}}{}`;
+          replaceRangePreservingUndo(ta, s, en, ins, s + 6 + sel.length + 2, s + 6 + sel.length + 2);
+        } else {
+          const { opStart, stripParens } = findPrecedingFractionOperandStart(val, mathTok.contentStart, s);
+          if (opStart < s) {
+            let num = val.slice(opStart, s);
+            if (stripParens && num.startsWith('(') && num.endsWith(')')) num = num.slice(1, -1);
+            const ins = `\\frac{${num}}{}`;
+            replaceRangePreservingUndo(ta, opStart, s, ins, opStart + 6 + num.length + 2, opStart + 6 + num.length + 2);
+          } else {
+            replaceRangePreservingUndo(ta, s, s, '\\frac{}{}', s + 6, s + 6);
+          }
+        }
+        const follow = Boolean(state.previewFollowEnabled);
+        if (follow) state.notepadUserScrolled = false;
+        pendingScroll = follow;
+        flushRender();
+        scheduleSave();
+        return;
+      }
+      if (e.key === '*' && !isEscapedAt(val, s)) {
+        e.preventDefault();
+        replaceRangePreservingUndo(ta, s, en, '\\cdot ', s + 6, s + 6);
+        const follow = Boolean(state.previewFollowEnabled);
+        if (follow) state.notepadUserScrolled = false;
+        pendingScroll = follow;
+        flushRender();
+        scheduleSave();
+        return;
+      }
+    }
+
+    if ((state.autoBracesEnabled || inReaderEdit) && inMath && (noMod || isAltGr)) {
+      const s = ta.selectionStart ?? val.length;
+      const en = ta.selectionEnd ?? s;
+      const sel = val.slice(s, en);
+
+      if ((e.key === '^' || e.key === '_') && !isEscapedAt(val, s) && (sel.length > 0 || val[s] !== '{')) {
+        e.preventDefault();
+        const ins = `${e.key}{${sel}}`;
+        replaceRangePreservingUndo(ta, s, en, ins, s + 2, s + 2 + sel.length);
+        const follow = Boolean(state.previewFollowEnabled);
+        if (follow) state.notepadUserScrolled = false;
+        pendingScroll = follow;
+        flushRender();
+        scheduleSave();
+        return;
+      }
+    }
+
+    if (state.autoBracesEnabled && inMath && (noMod || isAltGr)) {
+      const s = ta.selectionStart ?? val.length;
+      const en = ta.selectionEnd ?? s;
+      const sel = val.slice(s, en);
+
+      if (e.key === '{' && !isEscapedAt(val, s)) {
+        e.preventDefault();
+        replaceRangePreservingUndo(ta, s, en, `{${sel}}`, s + 1, s + 1 + sel.length);
+        const follow = Boolean(state.previewFollowEnabled);
+        if (follow) state.notepadUserScrolled = false;
+        pendingScroll = follow;
+        flushRender();
+        scheduleSave();
+        return;
+      }
+      if (e.key === '}' && s === en && val[s] === '}' && !isEscapedAt(val, s)) {
+        e.preventDefault();
+        ta.setSelectionRange(s + 1, s + 1);
+        if (state.previewFollowEnabled) {
+          state.notepadUserScrolled = false;
+          pendingReaderNavScroll = true;
+        }
+        lastCursorPos = -1;
+        syncCursorMove();
+        window.__refreshNotepadCaret?.();
+        return;
+      }
+      if (noMod && e.key === 'Backspace' && s === en && s > 0 && val[s - 1] === '{' && val[s] === '}' && !isEscapedAt(val, s - 1)) {
+        e.preventDefault();
+        replaceRangePreservingUndo(ta, s - 1, s + 1, '', s - 1, s - 1);
+        const follow = Boolean(state.previewFollowEnabled);
+        if (follow) state.notepadUserScrolled = false;
+        pendingScroll = follow;
+        flushRender();
+        scheduleSave();
+        return;
+      }
+      if (noMod && e.key === 'Tab' && mathTok) {
+        const rawMath = val.slice(mathTok.contentStart, mathTok.contentEnd);
+        const relPos = clamp(caretPos - mathTok.contentStart, 0, rawMath.length);
+        const relTarget = computeTabJumpTarget(rawMath, relPos, e.shiftKey ? -1 : 1);
+        if (relTarget !== null) {
+          const target = mathTok.contentStart + relTarget;
+          if (target !== caretPos) {
+            e.preventDefault();
+            ta.setSelectionRange(target, target);
+            if (state.previewFollowEnabled) {
+              state.notepadUserScrolled = false;
+              pendingReaderNavScroll = true;
+            }
+            lastCursorPos = -1;
+            syncCursorMove();
+            window.__ensureNotepadCaretVisible?.();
+            window.__refreshNotepadCaret?.();
+            return;
+          }
+        }
+      }
+    }
+
+    if (state.intuitiveNavEnabled && notepadPreviewNavActive && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      const s = ta.selectionStart ?? 0;
+      const en = ta.selectionEnd ?? s;
+      if (e.shiftKey || s === en) {
+        const dir = e.key === 'ArrowRight' ? 1 : -1;
+        const curPos = getActiveCursorPos(ta);
+        const mathRanges = extractAllMathRangesForNav(tokenizeHybridLatex(ta.value));
+        const target = computeSmartLatexArrowTarget(ta.value, curPos, dir, mathRanges, false);
+        if (target !== null && target !== curPos) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            const anchor = ta.selectionDirection === 'backward' ? ta.selectionEnd : ta.selectionStart;
+            const start = Math.min(anchor, target);
+            const end = Math.max(anchor, target);
+            const selDir = target < anchor ? 'backward' : 'forward';
+            ta.setSelectionRange(start, end, selDir);
+          } else {
+            ta.setSelectionRange(target, target);
+          }
+          lastCursorPos = -1;
+          syncCursorMove();
+          window.__ensureNotepadCaretVisible?.();
+          window.__refreshNotepadCaret?.();
+        }
+      }
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       const dir = e.key === 'ArrowRight' ? 1 : -1;
-      const caretPos = getActiveCursorPos(ta);
+      const curPos = getActiveCursorPos(ta);
       const mathRanges = extractAllMathRangesForNav(tokenizeHybridLatex(ta.value));
-      const target = computeCtrlArrowTarget(ta.value, caretPos, dir, mathRanges);
-      if (target !== null && target !== caretPos) {
+      const target = computeCtrlArrowTarget(ta.value, curPos, dir, mathRanges);
+      if (target !== null && target !== curPos) {
         e.preventDefault();
         if (e.shiftKey) {
           const anchor = ta.selectionDirection === 'backward' ? ta.selectionEnd : ta.selectionStart;
@@ -1065,6 +1553,7 @@ export function init(ac) {
   on(ta, 'keyup', syncCursorMove, false, sig);
   on(ta, 'mouseup', syncCursorMove, false, sig);
   on(ta, 'click', syncCursorMove, false, sig);
+  on(ta, 'select', syncCursorMove, false, sig);
   on(ta, 'focus', syncCursorMove, false, sig);
   on(document, 'selectionchange', () => {
     if (document.activeElement === ta) syncCursorMove();
@@ -1073,48 +1562,109 @@ export function init(ac) {
   on(window, 'pagehide', () => set(KEYS.notepadText, ta.value), false, sig);
 
   if (previewWrap && previewEl) {
+    const resolvePreviewPoint = (clientX, clientY, target, isLight) => {
+      const src = ta.value || '';
+      const mathEl = target?.closest?.('.np-math-display[data-np-cstart][data-np-cend], .np-math-inline[data-np-cstart][data-np-cend]');
+      if (mathEl && previewEl.contains(mathEl)) {
+        const cs = Number(mathEl.getAttribute('data-np-cstart'));
+        const ce = Number(mathEl.getAttribute('data-np-cend'));
+        const disp = mathEl.getAttribute('data-np-display') === '1';
+        const rawMath = src.slice(cs, ce);
+        const localOff = resolveLatexOffsetAtPoint(rawMath, clientX, clientY, mathEl, {
+          displayMode: disp,
+          alignLeft: false,
+          isLight,
+          clickTarget: target,
+          buildBalancedCandidate,
+          injectLatexCaret,
+          findCaretElement,
+        });
+        return { pos: clamp(cs + localOff, 0, src.length), mathEl };
+      }
+      return { pos: resolvePlainClickOffset(previewEl, src, clientX, clientY, target), mathEl: null };
+    };
+
+    let dragStart = null;
+    let suppressNextClick = false;
+
+    on(previewWrap, 'mousedown', e => {
+      if (e.button !== 0) return;
+      if (!(document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit'))) {
+        dragStart = null;
+        return;
+      }
+      if (e.target.closest('a, summary, button, input, select, textarea, .notepad-preview-controls, .notepad-preview-header, .mg-nav-led')) {
+        dragStart = null;
+        return;
+      }
+      dragStart = { x: e.clientX, y: e.clientY, target: e.target };
+    }, false, sig);
+
+    on(previewWrap, 'mouseup', e => {
+      if (!dragStart || e.button !== 0) return;
+      const startInfo = dragStart;
+      dragStart = null;
+      if (!(document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit'))) return;
+      const dist = Math.hypot(e.clientX - startInfo.x, e.clientY - startInfo.y);
+      const sel = window.getSelection();
+      const hasDomSel = Boolean(sel && !sel.isCollapsed && sel.toString().length > 0);
+      if (dist < 5 && !hasDomSel) return;
+
+      const src = ta.value || '';
+      if (!src.trim()) return;
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      const p1 = resolvePreviewPoint(startInfo.x, startInfo.y, startInfo.target, isLight).pos;
+      const p2 = resolvePreviewPoint(e.clientX, e.clientY, e.target, isLight).pos;
+      if (p1 === p2) return;
+
+      try { sel?.removeAllRanges(); } catch { }
+      const s = Math.min(p1, p2);
+      const en = Math.max(p1, p2);
+      const dir = p2 < p1 ? 'backward' : 'forward';
+      notepadPreviewNavActive = Boolean(state.intuitiveNavEnabled);
+      window.__syncNavIndicators?.();
+      try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
+      ta.setSelectionRange(s, en, dir);
+      suppressNextClick = true;
+      setTimeout(() => { suppressNextClick = false; }, 0);
+      syncCursorMove();
+    }, false, sig);
+
     on(previewWrap, 'click', e => {
-      if (document.body.classList.contains('notepad-reader-mode')) return;
-      if (e.target.closest('a, summary, button, input, select, textarea, .notepad-preview-controls')) return;
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        return;
+      }
+      if (document.body.classList.contains('notepad-reader-mode') && !document.body.classList.contains('notepad-reader-edit')) return;
+      if (e.target.closest('a, summary, button, input, select, textarea, .notepad-preview-controls, .notepad-preview-header, .mg-nav-led')) return;
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().length > 0) return;
 
       const src = ta.value || '';
       if (!src.trim()) {
+        notepadPreviewNavActive = Boolean(state.intuitiveNavEnabled);
+        window.__syncNavIndicators?.();
         try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
+        renderHybridPreview(true, false);
         return;
       }
 
       const prevWrapTop = previewWrap.scrollTop;
       const prevWrapLeft = previewWrap.scrollLeft;
       const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-      const mathEl = e.target.closest('.np-math-display[data-np-cstart][data-np-cend], .np-math-inline[data-np-cstart][data-np-cend]');
+      const { pos: targetPos, mathEl } = resolvePreviewPoint(e.clientX, e.clientY, e.target, isLight);
       const prevMathLeft = mathEl ? mathEl.scrollLeft : 0;
 
-      let targetPos;
-      if (mathEl && previewEl.contains(mathEl)) {
-        const cs = Number(mathEl.getAttribute('data-np-cstart'));
-        const ce = Number(mathEl.getAttribute('data-np-cend'));
-        const disp = mathEl.getAttribute('data-np-display') === '1';
-        const rawMath = src.slice(cs, ce);
-        const localOff = resolveLatexOffsetAtPoint(rawMath, e.clientX, e.clientY, mathEl, {
-          displayMode: disp,
-          alignLeft: false,
-          isLight,
-          clickTarget: e.target,
-          buildBalancedCandidate,
-          injectLatexCaret,
-          findCaretElement,
-        });
-        targetPos = clamp(cs + localOff, 0, src.length);
-      } else {
-        targetPos = resolvePlainClickOffset(previewEl, src, e.clientX, e.clientY, e.target);
-      }
-
+      notepadPreviewNavActive = Boolean(state.intuitiveNavEnabled);
+      window.__syncNavIndicators?.();
+      const hadSel = lastSelEnd > lastSelStart;
       try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
       ta.setSelectionRange(targetPos, targetPos);
+      const autoWrapped = maybeAutoWrapUnbracedSlot();
       lastCursorPos = -1;
-      renderHybridPreview(!mathEl, false);
+      lastSelStart = -1;
+      lastSelEnd = -1;
+      renderHybridPreview(!mathEl || hadSel || autoWrapped, false);
       if (mathEl && mathEl.isConnected) {
         progScrolling = true;
         mathEl.scrollLeft = prevMathLeft;
@@ -1236,7 +1786,7 @@ export function init(ac) {
   on($('#phpbb-list-ol'), 'click', () => insertList(true), false, sig);
 
   on($('#phpbb-clear-fmt-btn'), 'click', () => {
-    ta.focus();
+    try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
     const s = ta.selectionStart ?? 0, e = ta.selectionEnd ?? 0;
     if (e > s) {
       const cleaned = clearBbcode(ta.value.slice(s, e));
@@ -1247,8 +1797,9 @@ export function init(ac) {
       let ok = false;
       try { ok = document.execCommand('insertText', false, cleanedAll); } catch { }
       if (!ok) ta.value = cleanedAll;
-      state.notepadUserScrolled = false;
-      renderHybridPreview(true, true);
+      const follow = Boolean(state.previewFollowEnabled);
+      if (follow) state.notepadUserScrolled = false;
+      renderHybridPreview(true, follow);
       window.__refreshSyntaxHighlight?.();
       window.__refreshNotepadCaret?.();
       set(KEYS.notepadText, ta.value);
@@ -1304,10 +1855,12 @@ export function init(ac) {
         return;
       }
       resetClear();
-      ta.focus(); ta.select();
+      try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
+      ta.select();
       try { document.execCommand('insertText', false, ''); } catch { ta.value = ''; }
-      state.notepadUserScrolled = false;
-      renderHybridPreview(true, true);
+      const follow = Boolean(state.previewFollowEnabled);
+      if (follow) state.notepadUserScrolled = false;
+      renderHybridPreview(true, follow);
       window.__refreshSyntaxHighlight?.();
       window.__refreshNotepadCaret?.();
       set(KEYS.notepadText, '');
@@ -1323,10 +1876,10 @@ export function init(ac) {
       e.preventDefault();
       const bodyEl = $('.notepad-body');
       start = {
-        y: e.clientY,
-        h: pvOuter.offsetHeight,
-        max: Math.max(90, (bodyEl?.clientHeight || innerHeight) - 85),
-        val: pvOuter.offsetHeight,
+        x: e.clientX,
+        w: pvOuter.offsetWidth,
+        max: Math.max(160, (bodyEl?.clientWidth || innerWidth) - 120),
+        val: pvOuter.offsetWidth,
       };
       rz.classList.add('active');
       document.body.classList.add('is-resizing');
@@ -1335,10 +1888,10 @@ export function init(ac) {
 
     on(rz, 'pointermove', e => {
       if (!start) return;
-      const v = Math.round(clamp(start.h + (start.y - e.clientY), 70, start.max));
+      const v = Math.round(clamp(start.w + (start.x - e.clientX), 140, start.max));
       start.val = v;
-      document.documentElement.style.setProperty('--notepad-preview-height', v + 'px');
-      mirrorSet(KEYS.notepadHeight, v);
+      document.documentElement.style.setProperty('--notepad-preview-width', v + 'px');
+      mirrorSet(KEYS.notepadWidth, v);
     }, false, sig);
 
     const endRz = e => {
@@ -1348,7 +1901,7 @@ export function init(ac) {
       try { rz.releasePointerCapture(e.pointerId); } catch { }
       rz.classList.remove('active');
       document.body.classList.remove('is-resizing');
-      set(KEYS.notepadHeight, finalV);
+      set(KEYS.notepadWidth, finalV);
     };
     on(rz, 'pointerup', endRz, false, sig);
     on(rz, 'pointercancel', endRz, false, sig);

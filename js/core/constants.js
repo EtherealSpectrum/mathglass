@@ -23,6 +23,7 @@ export const KEYS = {
   draft:                   'latex_editor_text',
   notepadText:             'latex_notepad_text',
   notepadHeight:           'latex_notepad_preview_height',
+  notepadWidth:            'latex_notepad_preview_width',
   notepadScale:            'latex_notepad_font_scale',
   notepadScaleAuto:        'latex_notepad_font_auto',
   notepadPreviewScale:     'latex_notepad_preview_scale',
@@ -33,6 +34,9 @@ export const KEYS = {
   headerBtnScaleAuto:      'latex_header_btn_scale_auto',
   notepadAutoDollar:       'latex_notepad_auto_dollar',
   syntaxHighlight:         'latex_syntax_highlight',
+  intuitiveNav:            'latex_intuitive_nav_enabled',
+  autoBraces:              'latex_auto_braces_enabled',
+  previewFollow:           'latex_preview_follow_enabled',
 };
 
 export const MSG = {
@@ -66,6 +70,9 @@ export const DEFAULTS = {
   textstyle: true,
   displaystyle: true,
   notepadAutoDollar: true,
+  intuitiveNav: true,
+  autoBraces: true,
+  previewFollow: true,
   dataset: 'codecogs_alike',
   geometry: { left: 80, top: 80, width: 580, height: 660 },
 };

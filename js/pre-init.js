@@ -1,6 +1,10 @@
-// Pre-init v3.1.0 — θέμα, διαφάνεια, θόλωμα (blur) και σύνταξη
+// Pre-init v3.3.0 — desktop shell, θέμα, διαφάνεια, θόλωμα (blur) και σύνταξη
 (function () {
   try {
+    var isDesktop = Boolean((window.mathglassDesktop && window.mathglassDesktop.isDesktop) || /[?&]mode=desktop\b/.test(location.search));
+    if (isDesktop) {
+      document.documentElement.setAttribute('data-desktop', 'true');
+    }
     var t = localStorage.getItem('latex_theme');
     document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
 
@@ -20,7 +24,7 @@
     }
 
     var bl = localStorage.getItem('latex_blur_enabled');
-    document.documentElement.setAttribute('data-blur', bl === 'false' ? 'false' : 'true');
+    document.documentElement.setAttribute('data-blur', isDesktop ? 'false' : (bl === 'false' ? 'false' : 'true'));
 
     var sx = localStorage.getItem('latex_syntax_highlight');
     document.documentElement.setAttribute('data-syntax', sx === 'false' ? 'false' : 'true');

@@ -2,7 +2,7 @@ import { KEYS } from '../core/constants.js';
 import { $, on, clamp, rafThrottle } from '../core/dom.js';
 import { computeAutoScale } from '../core/scale.js';
 import { translateLatexErrorToGreek } from '../core/errors.js';
-import { resolveLatexOffsetAtPoint } from '../core/latex-click.js';
+import { resolveLatexOffsetAtPoint, applyLatexSelectionHighlight, clearLatexSelectionHighlight, applyActiveSlotHighlight, clearActiveSlotHighlight } from '../core/latex-click.js';
 import { get, set, mirrorGet, mirrorSet } from '../core/storage.js';
 import { state, setSize } from './settings.js';
 
@@ -16,6 +16,9 @@ let lastRenderedSrc = null;
 let lastRenderedAlign = null;
 let lastRenderedTheme = null;
 let lastCursorPos = -1;
+let lastSelStart = -1;
+let lastSelEnd = -1;
+let lastWasSelection = false;
 
 function escapeHtml(str) {
     return String(str)
@@ -28,6 +31,15 @@ function escapeHtml(str) {
 function getActiveCursorPos(ta) {
     if (!ta) return 0;
     return (ta.selectionDirection === 'backward' ? ta.selectionStart : ta.selectionEnd) ?? ta.value.length;
+}
+
+function getSelectionBounds(ta) {
+    if (!ta) return { start: 0, end: 0, active: false };
+    const s = ta.selectionStart ?? 0;
+    const e = ta.selectionEnd ?? 0;
+    const start = Math.min(s, e);
+    const end = Math.max(s, e);
+    return { start, end, active: end > start };
 }
 
 function readTokenEnd(s, idx) {
@@ -386,6 +398,23 @@ export function renderLatexWithCaret(rawMath, cursorOffset, alignLeft, displayMo
     const trimmed = rawMath.trim();
     if (!trimmed) return { html: '', ok: true, error: null };
 
+    if (typeof cursorOffset !== 'number') {
+        try {
+            const html = katex.renderToString(trimmed, {
+                throwOnError: true,
+                displayMode,
+                fleqn: alignLeft,
+            });
+            return { html, ok: true, error: null };
+        } catch (err) {
+            return {
+                html: renderPartialLatexHtml(rawMath, err, alignLeft, displayMode, isLight, null),
+                ok: false,
+                error: err,
+            };
+        }
+    }
+
     const localPos = clamp(cursorOffset - leadLen, 0, trimmed.length);
     const withCaret = injectLatexCaret(trimmed, localPos);
 
@@ -419,8 +448,9 @@ export function render(shouldScroll = false) {
     const raw = state.ta.value;
     const src = raw.trim();
     const cursorPos = getActiveCursorPos(state.ta);
+    const sel = getSelectionBounds(state.ta);
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    const follow = Boolean(shouldScroll) && !state.userScrolled;
+    const follow = Boolean(shouldScroll) && Boolean(state.previewFollowEnabled) && !state.userScrolled;
     const prevScrollLeft = state.previewWrap.scrollLeft;
     const prevScrollTop = state.previewWrap.scrollTop;
 
@@ -428,6 +458,9 @@ export function render(shouldScroll = false) {
     lastRenderedAlign = state.alignLeft;
     lastRenderedTheme = isLight;
     lastCursorPos = cursorPos;
+    lastSelStart = sel.start;
+    lastSelEnd = sel.end;
+    lastWasSelection = sel.active;
 
     progScrolling = true;
     try {
@@ -435,7 +468,7 @@ export function render(shouldScroll = false) {
             state.previewWrap.classList.remove('error');
             state.preview.innerHTML = '<span class="placeholder">Η προεπισκόπηση θα εμφανιστεί εδώ…</span>';
         } else {
-            const res = renderLatexWithCaret(raw, cursorPos, state.alignLeft, true, isLight);
+            const res = renderLatexWithCaret(raw, sel.active ? null : cursorPos, state.alignLeft, true, isLight);
             if (res.ok) {
                 state.previewWrap.classList.remove('error');
                 state.preview.innerHTML = res.html;
@@ -458,7 +491,24 @@ export function render(shouldScroll = false) {
                 errDiv.textContent = translateLatexErrorToGreek(res.error);
                 state.preview.appendChild(errDiv);
             }
-            markCaretElement(state.preview);
+            if (sel.active) {
+                const targetRoot = state.preview.querySelector('.preview-partial-math') || state.preview;
+                clearActiveSlotHighlight(targetRoot);
+                applyLatexSelectionHighlight(raw, sel.start, sel.end, targetRoot, {
+                    displayMode: true,
+                    alignLeft: state.alignLeft,
+                    buildBalancedCandidate,
+                });
+            } else {
+                markCaretElement(state.preview);
+                const targetRoot = state.preview.querySelector('.preview-partial-math') || state.preview;
+                applyActiveSlotHighlight(raw, cursorPos, targetRoot, {
+                    displayMode: true,
+                    alignLeft: state.alignLeft,
+                    buildBalancedCandidate,
+                    injectLatexCaret,
+                });
+            }
         }
         if (!follow) {
             state.previewWrap.scrollLeft = prevScrollLeft;
@@ -581,11 +631,30 @@ function scrollToCursor() {
 export function syncCursor() {
     if (!state.ta) return;
     const pos = getActiveCursorPos(state.ta);
-    const changed = pos !== lastCursorPos ||
-        state.ta.value !== lastRenderedSrc ||
+    const sel = getSelectionBounds(state.ta);
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const srcChanged = state.ta.value !== lastRenderedSrc ||
         state.alignLeft !== lastRenderedAlign ||
-        (document.documentElement.getAttribute('data-theme') === 'light') !== lastRenderedTheme;
-    if (!changed) return;
+        isLight !== lastRenderedTheme;
+    const selChanged = sel.start !== lastSelStart || sel.end !== lastSelEnd;
+
+    if (!srcChanged && !selChanged && pos === lastCursorPos) return;
+
+    if (!srcChanged && sel.active && lastWasSelection && state.preview && state.ta.value.trim()) {
+        lastCursorPos = pos;
+        lastSelStart = sel.start;
+        lastSelEnd = sel.end;
+        const targetRoot = state.preview.querySelector('.preview-partial-math') || state.preview;
+        clearActiveSlotHighlight(targetRoot);
+        clearLatexSelectionHighlight(targetRoot);
+        applyLatexSelectionHighlight(state.ta.value, sel.start, sel.end, targetRoot, {
+            displayMode: true,
+            alignLeft: state.alignLeft,
+            buildBalancedCandidate,
+        });
+        return;
+    }
+
     render(false);
 }
 
@@ -657,7 +726,7 @@ export function init(ac) {
 
     on(state.previewWrap, 'click', e => {
         if (!state.ta || !state.preview) return;
-        if (e.target.closest('.preview-controls, .preview-error-msg, button, a')) return;
+        if (e.target.closest('.preview-controls, .preview-error-msg, .mg-nav-led, button, a')) return;
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed && sel.toString().length > 0) return;
 
@@ -666,6 +735,8 @@ export function init(ac) {
         const raw = state.ta.value || '';
 
         if (!raw.trim()) {
+            state.previewNavActive = Boolean(state.intuitiveNavEnabled);
+            window.__syncNavIndicators?.();
             try { state.ta.focus({ preventScroll: true }); } catch { state.ta.focus(); }
             return;
         }
@@ -681,10 +752,14 @@ export function init(ac) {
             findCaretElement,
         });
 
+        state.previewNavActive = Boolean(state.intuitiveNavEnabled);
+        window.__syncNavIndicators?.();
         try { state.ta.focus({ preventScroll: true }); } catch { state.ta.focus(); }
         state.ta.setSelectionRange(pos, pos);
         ensureTextareaOffsetVisible(state.ta, pos);
         lastCursorPos = -1;
+        lastSelStart = -1;
+        lastSelEnd = -1;
         syncCursor();
         state.previewWrap.scrollTop = prevTop;
         state.previewWrap.scrollLeft = prevLeft;

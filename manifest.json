@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MathGlass — Επεξεργαστής LaTeX & phpBB",
-  "version": "3.1.0",
-  "description": "Σύνταξη εξισώσεων LaTeX & σημειωματάριο phpBB με ζωντανή προεπισκόπηση, εφέ θολώματος, αυτόματο $ και εξαγωγή PNG/PDF.",
+  "version": "3.3.0",
+  "description": "Σύνταξη εξισώσεων LaTeX & σημειωματάριο phpBB με ζωντανή προεπισκόπηση, εφέ θολώματος, αυτόματο $, αυτόματα άγκιστρα & εξαγωγή PNG/PDF.",
   "action": {
     "default_title": "Άνοιγμα/Κλείσιμο MathGlass",
     "default_icon": {

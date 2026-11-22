@@ -305,7 +305,7 @@
   divider.style.cssText = 'width:1px;height:16px;background:var(--lfp-line);margin:0 2px;flex-shrink:0';
 
   const btnMin = mkBarBtn(ICON.min, 'Ελαχιστοποίηση', 14, 14, true);
-  const btnFull = mkBarBtn(ICON.full, 'Πλήρης Οθόνη', 14, 14, true);
+  const btnFull = mkBarBtn(ICON.full, 'Πλήρης Οθόνη (F11)', 14, 14, true);
   const btnClose = mkBarBtn(ICON.close, 'Κλείσιμο', 14, 14, true);
 
   Object.assign(wrapper.style, {
@@ -372,10 +372,18 @@
     const inPanel = wrapper.contains(ae) || ae === iframe;
     const onBarePage = !minimized && (!ae || ae === document.body || ae === document.documentElement);
     const isMod = e.ctrlKey || e.metaKey;
-    const isPanelAlt = e.altKey && !isMod && !e.shiftKey && /^(Key[NCTOBKPSRMELFXG]|Digit4)$/.test(e.code);
-    const isPanelCtrl = inPanel && isMod && !e.altKey && (e.key === 'Enter' || /^(Key[BIKU])$/.test(e.code));
+    const isPanelAlt = e.altKey && !isMod && !e.shiftKey && /^(Key[NCTOBKPSRMELFXGWIHAVQUYZJ]|Digit[0-8]|Equal|Minus|NumpadAdd|NumpadSubtract|Numpad[0-8])$/.test(e.code);
+    const isPanelAltShift = e.altKey && !isMod && e.shiftKey && /^(Key[HSIG]|Backspace|Equal|Minus|NumpadAdd|NumpadSubtract|Digit0|Numpad0)$/.test(e.code);
+    const isPanelCtrl = inPanel && isMod && !e.altKey && (e.key === 'Enter' || /^(Key[BIKU]|Backslash)$/.test(e.code) || (e.shiftKey && /^(KeyX|Digit[78])$/.test(e.code)));
     const isPanelEsc = inPanel && e.key === 'Escape';
-    if ((inPanel || (onBarePage && isPanelAlt)) && (isPanelAlt || isPanelCtrl || isPanelEsc)) {
+    const isPanelF11 = inPanel && !isMod && !e.altKey && !e.shiftKey && e.code === 'F11';
+    if (isPanelF11) {
+      e.preventDefault();
+      e.stopPropagation();
+      btnFull.click();
+      return;
+    }
+    if ((inPanel || (onBarePage && (isPanelAlt || isPanelAltShift))) && (isPanelAlt || isPanelAltShift || isPanelCtrl || isPanelEsc)) {
       e.preventDefault();
       e.stopPropagation();
       if (e.altKey) suppressHostAltKeyup = true;

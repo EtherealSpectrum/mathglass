@@ -6,6 +6,10 @@ import { computeAutoScale } from '../core/scale.js';
 export const DONATE_URL = 'https://ko-fi.com/nikitask';
 
 export function openDonatePage() {
+  if (window.mathglassDesktop?.openExternal) {
+    window.mathglassDesktop.openExternal(DONATE_URL);
+    return;
+  }
   const tabsApi = (typeof browser !== 'undefined' && browser.tabs?.create)
     ? browser.tabs
     : (typeof chrome !== 'undefined' && chrome.tabs?.create ? chrome.tabs : null);
@@ -18,6 +22,10 @@ export function openDonatePage() {
 export const state = {
   ta: null, previewWrap: null, preview: null,
   alignLeft: false,
+  intuitiveNavEnabled: true,
+  previewNavActive: false,
+  autoBracesEnabled: true,
+  previewFollowEnabled: true,
   toolbarScale: 1, toolbarScaleAuto: true,
   previewScale: 1, previewScaleAuto: true,
   editorScale: 1, editorScaleAuto: true,
@@ -90,6 +98,10 @@ export function applyTransparency(lvl, shouldPersist = true) {
 }
 
 export function applyBlur(enabled, shouldPersist = true) {
+  if (window.mathglassDesktop?.isDesktop) {
+    document.documentElement.setAttribute('data-blur', 'false');
+    return;
+  }
   const b = enabled === false ? false : true;
   document.documentElement.setAttribute('data-blur', b ? 'true' : 'false');
   const btn = $('#blur-toggle');
@@ -152,6 +164,96 @@ export function applyPreviewHidden(hidden, shouldPersist = true) {
   else mirrorSet(KEYS.previewHidden, h);
 }
 
+export function syncNavIndicators() {
+  const allowed = state.intuitiveNavEnabled !== false;
+  const applyBtn = (el, active) => {
+    if (!el) return;
+    const on = Boolean(allowed && active);
+    el.classList.toggle('is-on', on);
+    el.classList.toggle('is-locked-off', !allowed);
+    el.setAttribute('aria-pressed', String(on));
+    if (!allowed) {
+      el.title = 'Διαισθητική πλοήγηση LaTeX: ΑΠΕΝΕΡΓΟΠΟΙΗΜΕΝΗ στις Ρυθμίσεις (Alt+I για ενεργοποίηση)';
+    } else if (on) {
+      el.title = 'Διαισθητική πλοήγηση (← / → εντός LaTeX): ΕΝΕΡΓΗ — Κάντε κλικ στον κώδικα για κανονική πλοήγηση (Alt+I για μόνιμη απενεργοποίηση)';
+    } else {
+      el.title = 'Διαισθητική πλοήγηση (← / → εντός LaTeX): ΑΝΕΝΕΡΓΗ — Κάντε κλικ στην προεπισκόπηση για ενεργοποίηση (Alt+I για μόνιμη απενεργοποίηση)';
+    }
+  };
+  applyBtn($('#preview-nav-indicator'), state.previewNavActive);
+  applyBtn($('#notepad-nav-indicator'), window.__isNotepadPreviewNavActive?.());
+}
+window.__syncNavIndicators = syncNavIndicators;
+
+export function applyIntuitiveNav(enabled, shouldPersist = true) {
+  const on = enabled === false ? false : true;
+  state.intuitiveNavEnabled = on;
+  if (!on) {
+    state.previewNavActive = false;
+    window.__setNotepadPreviewNav?.(false);
+  }
+  const btn = $('#intuitive-nav-toggle');
+  if (btn) {
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', String(on));
+    btn.textContent = on ? 'Διαισθητική Πλοήγηση: ΕΝΕΡΓΗ' : 'Διαισθητική Πλοήγηση: ΑΝΕΝΕΡΓΗ';
+  }
+  syncNavIndicators();
+  if (shouldPersist) persist(KEYS.intuitiveNav, on);
+  else mirrorSet(KEYS.intuitiveNav, on);
+}
+
+export function applyAutoBraces(enabled, shouldPersist = true) {
+  const on = enabled === false ? false : true;
+  state.autoBracesEnabled = on;
+  for (const sel of ['#auto-braces-btn', '#notepad-auto-braces-btn']) {
+    const el = $(sel);
+    if (!el) continue;
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-pressed', String(on));
+    el.title = (on
+      ? 'Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ — Περιβάλλει εκθέτες, δείκτες, αριθμητές & κλείνει { }'
+      : 'Αυτόματα Άγκιστρα { }: ΑΝΕΝΕΡΓΑ — Κλικ για αυτόματο { } σε εκθέτες, δείκτες κ.λπ.') + ' (Alt+J)';
+  }
+  const sBtn = $('#auto-braces-toggle');
+  if (sBtn) {
+    sBtn.classList.toggle('active', on);
+    sBtn.setAttribute('aria-pressed', String(on));
+    sBtn.textContent = on ? 'Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ' : 'Αυτόματα Άγκιστρα { }: ΑΝΕΝΕΡΓΑ';
+  }
+  if (shouldPersist) persist(KEYS.autoBraces, on);
+  else mirrorSet(KEYS.autoBraces, on);
+}
+
+export function applyPreviewFollow(enabled, shouldPersist = true) {
+  const on = enabled === false ? false : true;
+  state.previewFollowEnabled = on;
+  if (on) {
+    state.userScrolled = false;
+    state.notepadUserScrolled = false;
+  }
+  for (const sel of ['#follow-mode-btn', '#notepad-follow-mode-btn']) {
+    const el = $(sel);
+    if (!el) continue;
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-pressed', String(on));
+    el.textContent = on ? 'Ακολούθηση' : 'Σταθερή';
+    el.title = (on
+      ? 'Παρακολούθηση Προεπισκόπησης: ΑΚΟΛΟΥΘΗΣΗ — Η προεπισκόπηση ακολουθεί αυτόματα τον κέρσορα καθώς γράφετε'
+      : 'Παρακολούθηση Προεπισκόπησης: ΣΤΑΘΕΡΗ — Η προεπισκόπηση μένει ακίνητη εκεί που την αφήσατε και δεν πηδάει εκεί που γράφετε') + ' (Alt+5)';
+  }
+  const sBtn = $('#follow-mode-toggle');
+  if (sBtn) {
+    sBtn.classList.toggle('active', on);
+    sBtn.setAttribute('aria-pressed', String(on));
+    sBtn.textContent = on
+      ? 'Παρακολούθηση Προεπισκόπησης: ΑΚΟΛΟΥΘΗΣΗ'
+      : 'Παρακολούθηση Προεπισκόπησης: ΣΤΑΘΕΡΗ';
+  }
+  if (shouldPersist) persist(KEYS.previewFollow, on);
+  else mirrorSet(KEYS.previewFollow, on);
+}
+
 export async function load() {
   try {
     const r = await get(Object.values(KEYS));
@@ -165,6 +267,9 @@ export async function load() {
     applyToolbarHidden(r[KEYS.toolbarHidden] ?? mirrorGet(KEYS.toolbarHidden, 'bool') ?? false, false);
     applyNotepadToolbarHidden(r[KEYS.notepadToolbarHidden] ?? mirrorGet(KEYS.notepadToolbarHidden, 'bool') ?? false, false);
     applyPreviewHidden(r[KEYS.previewHidden] ?? mirrorGet(KEYS.previewHidden, 'bool') ?? false, false);
+    applyIntuitiveNav(r[KEYS.intuitiveNav] ?? mirrorGet(KEYS.intuitiveNav, 'bool') ?? DEFAULTS.intuitiveNav, false);
+    applyAutoBraces(r[KEYS.autoBraces] ?? mirrorGet(KEYS.autoBraces, 'bool') ?? DEFAULTS.autoBraces, false);
+    applyPreviewFollow(r[KEYS.previewFollow] ?? mirrorGet(KEYS.previewFollow, 'bool') ?? DEFAULTS.previewFollow, false);
 
     const pick = (kind, apply) => {
       const autoKey = SCALE_KEY[kind].auto, valKey = SCALE_KEY[kind].scale;
@@ -352,6 +457,56 @@ export function bindControls(ac) {
   const pvToggle = $('#preview-toggle');
   if (pvToggle) on(pvToggle, 'click', () => applyPreviewHidden(!$('.preview-outer')?.classList.contains('hidden'), true), false, sig);
 
+  const navToggle = $('#intuitive-nav-toggle');
+  if (navToggle) on(navToggle, 'click', () => applyIntuitiveNav(!state.intuitiveNavEnabled, true), false, sig);
+
+  for (const sel of ['#auto-braces-btn', '#notepad-auto-braces-btn', '#auto-braces-toggle']) {
+    const el = $(sel);
+    if (!el) continue;
+    on(el, 'mousedown', e => e.preventDefault(), false, sig);
+    on(el, 'click', e => {
+      e.stopPropagation();
+      applyAutoBraces(!state.autoBracesEnabled, true);
+      window.__focusActiveEditor?.();
+    }, false, sig);
+  }
+
+  for (const sel of ['#follow-mode-btn', '#notepad-follow-mode-btn', '#follow-mode-toggle']) {
+    const el = $(sel);
+    if (!el) continue;
+    on(el, 'mousedown', e => e.preventDefault(), false, sig);
+    on(el, 'click', e => {
+      e.stopPropagation();
+      applyPreviewFollow(!state.previewFollowEnabled, true);
+      window.__focusActiveEditor?.();
+    }, false, sig);
+  }
+
+  const pvNavLed = $('#preview-nav-indicator');
+  if (pvNavLed) {
+    on(pvNavLed, 'mousedown', e => e.preventDefault(), false, sig);
+    on(pvNavLed, 'click', e => {
+      e.stopPropagation();
+      if (!state.intuitiveNavEnabled) return;
+      state.previewNavActive = !state.previewNavActive;
+      syncNavIndicators();
+      try { state.ta?.focus({ preventScroll: true }); } catch { state.ta?.focus(); }
+    }, false, sig);
+  }
+
+  const npNavLed = $('#notepad-nav-indicator');
+  if (npNavLed) {
+    on(npNavLed, 'mousedown', e => e.preventDefault(), false, sig);
+    on(npNavLed, 'click', e => {
+      e.stopPropagation();
+      if (!state.intuitiveNavEnabled) return;
+      window.__setNotepadPreviewNav?.(!window.__isNotepadPreviewNavActive?.());
+      syncNavIndicators();
+      const np = $('#notepad-input');
+      try { np?.focus({ preventScroll: true }); } catch { np?.focus(); }
+    }, false, sig);
+  }
+
   const unsub = onChanged(changes => {
     if (changes[KEYS.theme]) applyTheme(changes[KEYS.theme].newValue, false);
     if (changes[KEYS.transparency]) applyTransparency(changes[KEYS.transparency].newValue, false);
@@ -359,6 +514,9 @@ export function bindControls(ac) {
     if (changes[KEYS.toolbarHidden]) applyToolbarHidden(changes[KEYS.toolbarHidden].newValue, false);
     if (changes[KEYS.notepadToolbarHidden]) applyNotepadToolbarHidden(changes[KEYS.notepadToolbarHidden].newValue, false);
     if (changes[KEYS.previewHidden]) applyPreviewHidden(changes[KEYS.previewHidden].newValue, false);
+    if (changes[KEYS.intuitiveNav]) applyIntuitiveNav(changes[KEYS.intuitiveNav].newValue, false);
+    if (changes[KEYS.autoBraces]) applyAutoBraces(changes[KEYS.autoBraces].newValue, false);
+    if (changes[KEYS.previewFollow]) applyPreviewFollow(changes[KEYS.previewFollow].newValue, false);
   });
   sig.addEventListener('abort', unsub, { once: true });
 
@@ -369,6 +527,7 @@ export function bindControls(ac) {
   };
   applyAlign();
   on(al, 'click', () => { state.alignLeft = !state.alignLeft; persist(KEYS.alignLeft, state.alignLeft); applyAlign(); window.__renderPreview?.(false); }, false, sig);
+  syncNavIndicators();
 
   for (const [sel, key] of [['#tex-toggle', KEYS.texWrap], ['#inline-toggle', KEYS.textstyle], ['#displaystyle-toggle', KEYS.displaystyle]]) {
     const c = $(sel); if (c) on(c, 'change', () => persist(key, c.checked), false, sig);
@@ -384,14 +543,6 @@ export function bindControls(ac) {
   const donateCopy = $('#settings-donate-copy');
   if (donateCopy) {
     on(donateCopy, 'click', e => {
-      e.stopPropagation();
-      openDonatePage();
-    }, false, sig);
-  }
-
-  const donateHeaderBtn = $('#donate-btn');
-  if (donateHeaderBtn) {
-    on(donateHeaderBtn, 'click', e => {
       e.stopPropagation();
       openDonatePage();
     }, false, sig);

@@ -1,0 +1,77 @@
+{
+  "name": "mathglass-desktop",
+  "version": "3.3.0",
+  "description": "MathGlass Desktop — Επεξεργαστής LaTeX & Σημειωματάριο phpBB με πραγματική διαφάνεια 0%-100%",
+  "author": "EtherealSpectrum",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "prepare-web": "node prepare-web.js",
+    "pack": "npm run prepare-web && electron-builder --dir",
+    "dist": "npm run prepare-web && electron-builder",
+    "dist:win": "npm run prepare-web && electron-builder --win",
+    "dist:mac": "npm run prepare-web && electron-builder --mac",
+    "dist:linux": "npm run prepare-web && electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.etherealspectrum.mathglass.desktop",
+    "productName": "MathGlass",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      {
+        "from": ".bundle/web",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Desktop-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-Desktop-${version}-mac-${arch}.${ext}"
+    },
+    "linux": {
+      "category": "Education",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "${productName}-Desktop-${version}-linux-${arch}.${ext}"
+    }
+  }
+}

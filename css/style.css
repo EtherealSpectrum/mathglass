@@ -166,6 +166,48 @@ body.is-resizing .resizer {
   font-weight: 700;
 }
 
+.standalone-drag-spacer {
+  flex: 1 1 auto;
+  min-width: 20px;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.standalone-brand-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.25px;
+  color: var(--ink-soft);
+  user-select: none;
+  pointer-events: none;
+  padding-left: 2px;
+}
+
+.standalone-win-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.desktop-win-btn {
+  width: calc(28px * var(--header-btn-scale, 1)) !important;
+  height: calc(28px * var(--header-btn-scale, 1)) !important;
+}
+
+.desktop-win-btn svg {
+  width: calc(15px * var(--header-btn-scale, 1)) !important;
+  height: calc(15px * var(--header-btn-scale, 1)) !important;
+}
+
+.desktop-close-btn:hover {
+  background: #ef4444 !important;
+  border-color: #ef4444 !important;
+  color: #ffffff !important;
+}
+
 .donate-header-btn {
   margin-right: auto;
   height: 28px;
@@ -1353,10 +1395,19 @@ button.ghost:active {
   background-color: transparent !important;
 }
 
+:root[data-transparent="true"] * {
+  scrollbar-color: var(--sb-thumb) transparent;
+}
+
+:root[data-transparent="true"] *::-webkit-scrollbar-track,
+:root[data-transparent="true"] *::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+
 :root[data-transparent="true"] .standalone-header {
-  background: var(--toolbar-bg) !important;
-  background-color: var(--toolbar-bg) !important;
-  border-color: var(--line) !important;
+  background: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
+  background-color: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
+  border-color: rgba(128, 128, 128, 0.24) !important;
 }
 
 :root[data-transparent="true"] main {
@@ -1387,8 +1438,8 @@ button.ghost:active {
 /* Renderer (Editor & Notepad): διακριτή απόχρωση χρώματος (και blur μόνο στο ανοιχτό θέμα) */
 :root[data-transparent="true"] .preview-outer,
 :root[data-transparent="true"] .notepad-preview-outer {
-  background: rgba(var(--renderer-rgb), max(0.32, var(--panel-alpha))) !important;
-  background-color: rgba(var(--renderer-rgb), max(0.32, var(--panel-alpha))) !important;
+  background: rgba(var(--renderer-rgb), var(--panel-alpha)) !important;
+  background-color: rgba(var(--renderer-rgb), var(--panel-alpha)) !important;
   border-top: 1px solid rgba(17, 18, 20, 0.18) !important;
   box-shadow: none !important;
 }
@@ -1406,8 +1457,8 @@ button.ghost:active {
 
 :root[data-theme="dark"][data-transparent="true"] .preview-outer,
 :root[data-theme="dark"][data-transparent="true"] .notepad-preview-outer {
-  background: rgba(var(--renderer-rgb), max(0.24, var(--panel-alpha))) !important;
-  background-color: rgba(var(--renderer-rgb), max(0.24, var(--panel-alpha))) !important;
+  background: rgba(var(--renderer-rgb), var(--panel-alpha)) !important;
+  background-color: rgba(var(--renderer-rgb), var(--panel-alpha)) !important;
   border-top-color: rgba(255, 255, 255, 0.12) !important;
 }
 
@@ -1423,15 +1474,15 @@ button.ghost:active {
 }
 
 :root[data-transparent="true"] .preview-controls {
-  background: rgba(var(--renderer-rgb), min(1, max(0.55, calc(var(--panel-alpha) + 0.25)))) !important;
-  background-color: rgba(var(--renderer-rgb), min(1, max(0.55, calc(var(--panel-alpha) + 0.25)))) !important;
+  background: rgba(var(--renderer-rgb), var(--panel-alpha)) !important;
+  background-color: rgba(var(--renderer-rgb), var(--panel-alpha)) !important;
 }
 
 /* Εργαλειοθήκη & Μπάρα Σημειωματάριου: διακριτή απόχρωση (και blur μόνο στο ανοιχτό θέμα) */
 :root[data-transparent="true"] .toolbars-container,
 :root[data-transparent="true"] .notepad-bar {
-  background: rgba(var(--toolbar-rgb), max(0.36, var(--panel-alpha))) !important;
-  background-color: rgba(var(--toolbar-rgb), max(0.36, var(--panel-alpha))) !important;
+  background: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
+  background-color: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
   border-bottom: 1px solid rgba(17, 18, 20, 0.18) !important;
   box-shadow: none !important;
 }
@@ -1444,8 +1495,8 @@ button.ghost:active {
 
 :root[data-theme="dark"][data-transparent="true"] .toolbars-container,
 :root[data-theme="dark"][data-transparent="true"] .notepad-bar {
-  background: rgba(var(--toolbar-rgb), max(0.26, var(--panel-alpha))) !important;
-  background-color: rgba(var(--toolbar-rgb), max(0.26, var(--panel-alpha))) !important;
+  background: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
+  background-color: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
   border-bottom-color: rgba(255, 255, 255, 0.12) !important;
 }
 
@@ -2410,15 +2461,15 @@ textarea#notepad-input {
 }
 
 :root[data-transparent="true"] .phpbb-toolbar {
-  background: rgba(var(--toolbar-rgb), max(0.36, var(--panel-alpha))) !important;
-  background-color: rgba(var(--toolbar-rgb), max(0.36, var(--panel-alpha))) !important;
+  background: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
+  background-color: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
   border-bottom: 1px solid rgba(17, 18, 20, 0.18) !important;
   box-shadow: none !important;
 }
 
 :root[data-theme="dark"][data-transparent="true"] .phpbb-toolbar {
-  background: rgba(var(--toolbar-rgb), max(0.26, var(--panel-alpha))) !important;
-  background-color: rgba(var(--toolbar-rgb), max(0.26, var(--panel-alpha))) !important;
+  background: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
+  background-color: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
   border-bottom-color: rgba(255, 255, 255, 0.12) !important;
 }
 
@@ -2761,3 +2812,82 @@ textarea#notepad-input {
   vertical-align: baseline;
   pointer-events: none;
 }
+
+/* ============================================================
+   MathGlass Desktop (Electron) Frameless Shell & Resize Edges
+   ============================================================ */
+html[data-desktop="true"] {
+  padding: 8px;
+  background: transparent !important;
+}
+
+html[data-desktop="true"] *,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] .standalone-header,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] .toolbars-container,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] .notepad-bar,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] .phpbb-toolbar,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] .notepad-templates-bar,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] .preview-outer,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] .notepad-preview-outer,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] .panel-popup,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] .export-menu,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] .phpbb-dropdown-menu,
+:root[data-desktop="true"][data-transparent="true"][data-blur="true"] body.notepad-reader-mode #notepad-preview-outer {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html[data-desktop="true"] body {
+  height: 100% !important;
+  border-radius: 12px;
+  border: 1px solid rgba(128, 128, 128, calc(0.22 + 0.14 * var(--panel-alpha, 1)));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, calc(0.45 * var(--panel-alpha, 1)));
+  overflow: hidden;
+}
+
+html[data-desktop="true"] #insert-btn,
+html[data-desktop="true"] #notepad-insert-btn,
+html[data-desktop="true"] #blur-toggle {
+  display: none !important;
+}
+
+html[data-desktop="true"][data-maximized="true"] {
+  padding: 0;
+}
+
+html[data-desktop="true"][data-maximized="true"] body {
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+
+html[data-desktop="true"] .standalone-header {
+  -webkit-app-region: drag;
+}
+
+html[data-desktop="true"] .standalone-header button,
+html[data-desktop="true"] .standalone-header input,
+html[data-desktop="true"] .standalone-header .transparency-group,
+html[data-desktop="true"] .standalone-header .transparency-slider-wrap {
+  -webkit-app-region: no-drag;
+}
+
+.mg-edge-handle {
+  position: fixed;
+  z-index: 2147483600;
+  -webkit-app-region: no-drag;
+  background: transparent;
+}
+
+html[data-desktop="true"][data-maximized="true"] .mg-edge-handle {
+  display: none !important;
+}
+
+.mg-edge-n { top: 0; left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
+.mg-edge-s { bottom: 0; left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
+.mg-edge-e { right: 0; top: 12px; bottom: 12px; width: 6px; cursor: ew-resize; }
+.mg-edge-w { left: 0; top: 12px; bottom: 12px; width: 6px; cursor: ew-resize; }
+.mg-edge-ne { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+.mg-edge-nw { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+.mg-edge-se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+.mg-edge-sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }

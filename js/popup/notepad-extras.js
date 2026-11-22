@@ -61,7 +61,7 @@ function syncHighlightOverlay(ta, pre) {
 }
 
 function insertTemplateSnippet(ta, snippet) {
-  ta.focus();
+  try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
   const s = ta.selectionStart ?? ta.value.length;
   const e = ta.selectionEnd ?? ta.value.length;
   const needsGap = s > 0 && ta.value[s - 1] !== '\n' ? '\n\n' : '';
@@ -69,8 +69,9 @@ function insertTemplateSnippet(ta, snippet) {
   let ok = false;
   try { ok = document.execCommand('insertText', false, text); } catch { }
   if (!ok) ta.setRangeText(text, s, e, 'end');
-  state.notepadUserScrolled = false;
-  window.__renderHybridPreview?.(true, true);
+  const follow = Boolean(state.previewFollowEnabled);
+  if (follow) state.notepadUserScrolled = false;
+  window.__renderHybridPreview?.(true, follow);
   window.__refreshSyntaxHighlight?.();
   window.__refreshNotepadCaret?.(true);
   set(KEYS.notepadText, ta.value);
@@ -132,8 +133,9 @@ function updateNotepadEditorCaret(resetBlink = false) {
   const caretEl = $('#notepad-editor-caret');
   if (!wrap || !ta || !mirror || !caretEl) return;
 
+  const inReaderMode = document.body.classList.contains('notepad-reader-mode');
   const isVisible = document.body.classList.contains('notepad-open')
-    && !document.body.classList.contains('notepad-reader-mode')
+    && !inReaderMode
     && document.activeElement === ta
     && (ta.selectionStart === ta.selectionEnd);
 
@@ -347,9 +349,48 @@ export function init(ac) {
   }
 
   const readerBtn = $('#notepad-reader-btn');
+  const readerEditBtn = $('#notepad-reader-edit-btn');
+
+  const setReaderEditMode = next => {
+    const inReader = document.body.classList.contains('notepad-reader-mode');
+    const target = inReader && (typeof next === 'boolean' ? next : !document.body.classList.contains('notepad-reader-edit'));
+    document.body.classList.toggle('notepad-reader-edit', target);
+    if (readerEditBtn) {
+      readerEditBtn.classList.toggle('active', target);
+      readerEditBtn.setAttribute('aria-pressed', String(target));
+      readerEditBtn.textContent = target ? '✓ Τέλος Επεξ.' : '✏️ Επεξεργασία';
+      readerEditBtn.title = target
+        ? 'Επιστροφή σε καθαρή Λειτουργία Ανάγνωσης (Alt+W)'
+        : 'Επεξεργασία σημειωματάριου μέσα στη Λειτουργία Ανάγνωσης (χωρίς εμφάνιση πηγαίου κειμένου) (Alt+W)';
+    }
+    if (target && ta) {
+      window.__setNotepadPreviewNav?.(true);
+      requestAnimationFrame(() => {
+        try { ta.focus({ preventScroll: true }); } catch { try { ta.focus(); } catch { } }
+        window.__renderHybridPreview?.(true, false);
+        updateNotepadEditorCaret(false);
+      });
+    } else {
+      window.__setNotepadPreviewNav?.(false);
+      window.__renderHybridPreview?.(true, false);
+      updateNotepadEditorCaret(false);
+    }
+  };
+  window.__toggleNotepadReaderEditMode = setReaderEditMode;
+  if (readerEditBtn) {
+    on(readerEditBtn, 'mousedown', e => e.preventDefault(), false, sig);
+    on(readerEditBtn, 'click', () => setReaderEditMode(), false, sig);
+  }
+
   const setReaderMode = next => {
     const target = typeof next === 'boolean' ? next : !document.body.classList.contains('notepad-reader-mode');
     document.body.classList.toggle('notepad-reader-mode', target);
+    if (!target) {
+      window.__setNotepadPreviewNav?.(false);
+      setReaderEditMode(false);
+    } else {
+      setReaderEditMode(false);
+    }
     if (readerBtn) {
       readerBtn.classList.toggle('active', target);
       readerBtn.setAttribute('aria-pressed', String(target));

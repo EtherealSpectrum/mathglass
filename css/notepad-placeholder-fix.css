@@ -67,12 +67,12 @@
 }
 
 :root[data-theme="dark"][data-transparent="true"] .notepad-templates-bar {
-  background: rgba(var(--toolbar-rgb), max(0.26, var(--panel-alpha))) !important;
+  background: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
   border-bottom-color: rgba(255, 255, 255, 0.12) !important;
 }
 
 :root[data-theme="light"][data-transparent="true"] .notepad-templates-bar {
-  background: rgba(var(--toolbar-rgb), max(0.36, var(--panel-alpha))) !important;
+  background: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
   border-bottom-color: rgba(17, 18, 20, 0.18) !important;
 }
 
@@ -305,7 +305,7 @@ body.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer.hidden {
   color: var(--ink) !important;
 }
 
-:root[data-transparent="true"][data-blur="true"] body.notepad-reader-mode #notepad-preview-outer {
+:root:not([data-desktop="true"])[data-transparent="true"][data-blur="true"] body.notepad-reader-mode #notepad-preview-outer {
   backdrop-filter: blur(10px) !important;
   -webkit-backdrop-filter: blur(10px) !important;
 }
@@ -326,11 +326,11 @@ body.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer.hidden {
 }
 
 :root[data-transparent="true"][data-theme="dark"] body.notepad-reader-mode .notepad-preview-header {
-  background: rgba(24, 27, 34, calc(0.15 + var(--panel-alpha, 1) * 0.65)) !important;
+  background: rgba(var(--toolbar-rgb), var(--panel-alpha, 1)) !important;
 }
 
 :root[data-transparent="true"][data-theme="light"] body.notepad-reader-mode .notepad-preview-header {
-  background: rgba(226, 228, 232, calc(0.18 + var(--panel-alpha, 1) * 0.65)) !important;
+  background: rgba(var(--toolbar-rgb), var(--panel-alpha, 1)) !important;
 }
 
 body.notepad-reader-mode .notepad-preview-header {

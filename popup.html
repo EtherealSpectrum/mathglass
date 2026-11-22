@@ -274,6 +274,37 @@
             background: rgba(22, 163, 74, 0.12);
             color: #15803d;
         }
+        .preview-controls button.mg-tool-chip {
+            width: auto;
+            height: 20px;
+            padding: 0 7px;
+            font-family: var(--sans);
+            font-size: 9.5px;
+            font-weight: 600;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: var(--btn-bg);
+            color: var(--ink-soft);
+            margin-right: 2px;
+            white-space: nowrap;
+            flex: 0 0 auto;
+            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+        }
+        .preview-controls button.mg-tool-chip:hover {
+            border-color: var(--accent);
+            background: var(--btn-hover);
+            color: var(--ink);
+        }
+        .preview-controls button.mg-tool-chip.active {
+            background: var(--accent-soft);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .preview-controls button.mg-tool-chip.active:hover {
+            background: var(--accent);
+            color: #ffffff;
+            filter: none;
+        }
     </style>
     <script src="lib/html2canvas.min.js"></script>
     <script src="lib/jspdf.umd.min.js"></script>
@@ -297,6 +328,10 @@
                     <span class="mg-nav-dot" aria-hidden="true"></span>
                     <span>Πλοήγηση</span>
                 </button>
+                <button class="mg-tool-chip active" id="auto-braces-btn" type="button" aria-pressed="true"
+                    title="Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ — Περιβάλλει εκθέτες, δείκτες, αριθμητές & κλείνει { } (Alt+J)">{ }</button>
+                <button class="mg-tool-chip active" id="follow-mode-btn" type="button" aria-pressed="true"
+                    title="Παρακολούθηση Προεπισκόπησης: ΑΚΟΛΟΥΘΗΣΗ — Η προεπισκόπηση ακολουθεί αυτόματα τον κέρσορα καθώς γράφετε (Alt+5)">Ακολούθηση</button>
                 <button class="auto-badge active" id="preview-auto-badge" type="button" aria-pressed="true"
                     title="Αυτόματο μέγεθος (Alt+0)">AUTO</button>
                 <button id="preview-inline-btn" type="button" title="Αριστερή στοίχιση (Alt+A)" aria-pressed="false">
@@ -385,8 +420,12 @@
                     <button id="notepad-text-zoom-in" type="button" title="Μεγαλύτερο κείμενο">Aa+</button>
                 </div>
                 <button class="notepad-btn accent" id="notepad-auto-dollar-btn" type="button" aria-pressed="true"
-                    title="Αυτόματο $...$: ΕΝΕΡΓΟ — Όταν ο κέρσορας είναι εκτός εξίσωσης ($...$, $$...$$, [tex]...[/tex]), τα σύμβολα της εργαλειοθήκης KaTeX περιβάλλονται αυτόματα με $...$">$
+                    title="Αυτόματο $...$: ΕΝΕΡΓΟ — Όταν ο κέρσορας είναι εκτός εξίσωσης ($...$, $$...$$, [tex]...[/tex]), τα σύμβολα της εργαλειοθήκης KaTeX περιβάλλονται αυτόματα με $...$ (Alt+4)">$
                     Auto</button>
+                <button class="notepad-btn active" id="notepad-auto-braces-btn" type="button" aria-pressed="true"
+                    title="Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ — Περιβάλλει εκθέτες, δείκτες, αριθμητές & κλείνει { } (Alt+J)">{ }</button>
+                <button class="notepad-btn active" id="notepad-follow-mode-btn" type="button" aria-pressed="true"
+                    title="Παρακολούθηση Προεπισκόπησης: ΑΚΟΛΟΥΘΗΣΗ — Η προεπισκόπηση ακολουθεί αυτόματα τον κέρσορα καθώς γράφετε (Alt+5)">Ακολούθηση</button>
                 <button class="notepad-btn" id="notepad-templates-btn" type="button" aria-pressed="false"
                     title="Εμφάνιση/Απόκρυψη έτοιμων προτύπων phpBB & KaTeX (Alt+L)">Πρότυπα ▾</button>
                 <button class="notepad-btn active" id="notepad-toolbar-toggle-btn" type="button" aria-pressed="true"
@@ -598,6 +637,10 @@
             aria-pressed="true" title="Ενεργοποίηση/Απενεργοποίηση χρωματισμού σύνταξης (Alt+H)">Χρωματισμός Σύνταξης: ΕΝΕΡΓΟΣ</button>
         <button class="syntax-toggle-btn active" id="intuitive-nav-toggle" type="button"
             aria-pressed="true" title="Ενεργοποίηση/Απενεργοποίηση διαισθητικής πλοήγησης LaTeX με κλικ στην προεπισκόπηση (Alt+I)">Διαισθητική Πλοήγηση: ΕΝΕΡΓΗ</button>
+        <button class="syntax-toggle-btn active" id="auto-braces-toggle" type="button"
+            aria-pressed="true" title="Αυτόματα άγκιστρα { } σε εκθέτες, δείκτες, αριθμητές κ.λπ. (Alt+J)">Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ</button>
+        <button class="syntax-toggle-btn active" id="follow-mode-toggle" type="button"
+            aria-pressed="true" title="Κλείδωμα/ξεκλείδωμα αυτόματης παρακολούθησης της ζωντανής προεπισκόπησης καθώς γράφετε (Alt+5)">Παρακολούθηση Προεπισκόπησης: ΑΚΟΛΟΥΘΗΣΗ</button>
 
         <div class="settings-donate-wrap">
             <div class="settings-donate-card active" id="settings-donate-card">
