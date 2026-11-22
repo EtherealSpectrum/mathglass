@@ -117,7 +117,7 @@
 
 ---
 
-## 📦 Εγκατάσταση
+## 📦 Εγκατάσταση Επέκτασης Περιηγητή
 
 Κατέβασε το αρχείο `.zip` από την τελευταία έκδοση στα [**Releases**](https://github.com/EtherealSpectrum/mathglass/releases/latest) και επίλεξε τον browser σου:
 
@@ -152,6 +152,8 @@
 
 <details>
 <summary><strong>MathGlass Desktop (Electron — Windows / macOS / Linux, Εκκίνηση & Release)</strong></summary>
+
+ ## 📦 Εγκατάσταση Εφαρμογής Επιφάνειας Εργασίας
 
 1. Εκτέλεσε το `MathGlass-Desktop-3.3.0-win-x64.exe`
 
