@@ -26,6 +26,8 @@ export const state = {
   previewNavActive: false,
   autoBracesEnabled: true,
   previewFollowEnabled: true,
+  previewCaretEnabled: true,
+  slotHintsEnabled: true,
   toolbarScale: 1, toolbarScaleAuto: true,
   previewScale: 1, previewScaleAuto: true,
   editorScale: 1, editorScaleAuto: true,
@@ -33,7 +35,10 @@ export const state = {
   notepadPreviewScale: 1, notepadPreviewScaleAuto: true,
   notepadToolbarScale: 1, notepadToolbarScaleAuto: true,
   headerBtnScale: 1, headerBtnScaleAuto: true,
-  recent: [], dataset: DEFAULTS.dataset,
+  recent: [],
+  equationHistory: [],
+  favoriteEquations: [],
+  dataset: DEFAULTS.dataset,
   userScrolled: false,
   notepadUserScrolled: false,
 };
@@ -131,6 +136,8 @@ export function applyNotepadToolbarHidden(hidden, shouldPersist = true) {
   if (h) {
     $('#phpbb-headings-menu')?.classList.remove('active');
     $('#phpbb-size-menu')?.classList.remove('active');
+    $('#phpbb-color-menu')?.classList.remove('active');
+    $('#phpbb-table-menu')?.classList.remove('active');
   }
   if (btn) {
     btn.classList.toggle('active', !h);
@@ -254,22 +261,80 @@ export function applyPreviewFollow(enabled, shouldPersist = true) {
   else mirrorSet(KEYS.previewFollow, on);
 }
 
+export function applyPreviewCaret(enabled, shouldPersist = true) {
+  const on = enabled === false ? false : true;
+  state.previewCaretEnabled = on;
+  for (const sel of ['#preview-caret-btn', '#notepad-preview-caret-btn']) {
+    const el = $(sel);
+    if (!el) continue;
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-pressed', String(on));
+    el.title = (on
+      ? 'Κέρσορας Προεπισκόπησης: ΕΜΦΑΝΗΣ — Κλικ για απόκρυψη παλλόμενου δρομέα στη ζωντανή προεπισκόπηση'
+      : 'Κέρσορας Προεπισκόπησης: ΚΡΥΦΟΣ — Κλικ για εμφάνιση παλλόμενου δρομέα στη ζωντανή προεπισκόπηση') + ' (Alt+9)';
+  }
+  const sBtn = $('#preview-caret-toggle');
+  if (sBtn) {
+    sBtn.classList.toggle('active', on);
+    sBtn.setAttribute('aria-pressed', String(on));
+    sBtn.textContent = on
+      ? 'Κέρσορας Προεπισκόπησης: ΕΜΦΑΝΗΣ'
+      : 'Κέρσορας Προεπισκόπησης: ΚΡΥΦΟΣ';
+  }
+  window.__renderPreview?.(false);
+  window.__renderHybridPreview?.(true, false);
+  if (shouldPersist) persist(KEYS.previewCaret, on);
+  else mirrorSet(KEYS.previewCaret, on);
+}
+
+export function applySlotHints(enabled, shouldPersist = true) {
+  const on = enabled === false ? false : true;
+  state.slotHintsEnabled = on;
+  for (const sel of ['#slot-hints-btn', '#notepad-slot-hints-btn']) {
+    const el = $(sel);
+    if (!el) continue;
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-pressed', String(on));
+    el.title = (on
+      ? 'Υποδείξεις Πλαισίου: ΕΝΕΡΓΕΣ — Εμφάνιση διακεκομμένου πλαισίου γύρω από εκθέτες, δείκτες & κλάσματα'
+      : 'Υποδείξεις Πλαισίου: ΑΝΕΝΕΡΓΕΣ — Κλικ για εμφάνιση διακεκομμένου πλαισίου ενεργού πεδίου LaTeX') + ' (Alt+Shift+B)';
+  }
+  const sBtn = $('#slot-hints-toggle');
+  if (sBtn) {
+    sBtn.classList.toggle('active', on);
+    sBtn.setAttribute('aria-pressed', String(on));
+    sBtn.textContent = on
+      ? 'Υποδείξεις Πλαισίου: ΕΝΕΡΓΕΣ'
+      : 'Υποδείξεις Πλαισίου: ΑΝΕΝΕΡΓΕΣ';
+  }
+  window.__renderPreview?.(false);
+  window.__renderHybridPreview?.(true, false);
+  if (shouldPersist) persist(KEYS.slotHints, on);
+  else mirrorSet(KEYS.slotHints, on);
+}
+
 export async function load() {
   try {
     const r = await get(Object.values(KEYS));
-    state.alignLeft = r[KEYS.alignLeft] ?? mirrorGet(KEYS.alignLeft, 'bool') ?? false;
+    state.alignLeft = r[KEYS.alignLeft] ?? mirrorGet(KEYS.alignLeft, 'bool') ?? DEFAULTS.alignLeft;
     state.dataset = r[KEYS.dataset] || DEFAULTS.dataset;
     state.recent = Array.isArray(r[KEYS.recent]) ? r[KEYS.recent] : (mirrorGet(KEYS.recent, 'json') || []);
+    const rawEqHist = r[KEYS.equationHistory] ?? mirrorGet(KEYS.equationHistory, 'json');
+    state.equationHistory = Array.isArray(rawEqHist) ? rawEqHist.filter(x => typeof x === 'string' && x.trim()) : [];
+    const rawEqFavs = r[KEYS.favoriteEquations] ?? mirrorGet(KEYS.favoriteEquations, 'json');
+    state.favoriteEquations = Array.isArray(rawEqFavs) ? rawEqFavs.filter(x => typeof x === 'string' && x.trim()) : [];
 
     applyTheme(r[KEYS.theme] ?? mirrorGet(KEYS.theme) ?? DEFAULTS.theme, false);
     applyTransparency(r[KEYS.transparency] ?? mirrorGet(KEYS.transparency, 'num') ?? DEFAULTS.transparency, false);
-    applyBlur(r[KEYS.blurEnabled] ?? mirrorGet(KEYS.blurEnabled, 'bool') ?? true, false);
-    applyToolbarHidden(r[KEYS.toolbarHidden] ?? mirrorGet(KEYS.toolbarHidden, 'bool') ?? false, false);
-    applyNotepadToolbarHidden(r[KEYS.notepadToolbarHidden] ?? mirrorGet(KEYS.notepadToolbarHidden, 'bool') ?? false, false);
-    applyPreviewHidden(r[KEYS.previewHidden] ?? mirrorGet(KEYS.previewHidden, 'bool') ?? false, false);
+    applyBlur(r[KEYS.blurEnabled] ?? mirrorGet(KEYS.blurEnabled, 'bool') ?? DEFAULTS.blurEnabled, false);
+    applyToolbarHidden(r[KEYS.toolbarHidden] ?? mirrorGet(KEYS.toolbarHidden, 'bool') ?? DEFAULTS.toolbarHidden, false);
+    applyNotepadToolbarHidden(r[KEYS.notepadToolbarHidden] ?? mirrorGet(KEYS.notepadToolbarHidden, 'bool') ?? DEFAULTS.notepadToolbarHidden, false);
+    applyPreviewHidden(r[KEYS.previewHidden] ?? mirrorGet(KEYS.previewHidden, 'bool') ?? DEFAULTS.previewHidden, false);
     applyIntuitiveNav(r[KEYS.intuitiveNav] ?? mirrorGet(KEYS.intuitiveNav, 'bool') ?? DEFAULTS.intuitiveNav, false);
     applyAutoBraces(r[KEYS.autoBraces] ?? mirrorGet(KEYS.autoBraces, 'bool') ?? DEFAULTS.autoBraces, false);
     applyPreviewFollow(r[KEYS.previewFollow] ?? mirrorGet(KEYS.previewFollow, 'bool') ?? DEFAULTS.previewFollow, false);
+    applyPreviewCaret(r[KEYS.previewCaret] ?? mirrorGet(KEYS.previewCaret, 'bool') ?? DEFAULTS.previewCaret, false);
+    applySlotHints(r[KEYS.slotHints] ?? mirrorGet(KEYS.slotHints, 'bool') ?? DEFAULTS.slotHints, false);
 
     const pick = (kind, apply) => {
       const autoKey = SCALE_KEY[kind].auto, valKey = SCALE_KEY[kind].scale;
@@ -423,7 +488,7 @@ export function bindControls(ac) {
 
   const trT = $('#transparency-toggle'), trS = $('#transparency-slider');
   if (trT && trS) {
-    on(trT, 'click', () => applyTransparency(parseInt(trS.value || '0', 10) > 0 ? 0 : 45, true), false, sig);
+    on(trT, 'click', () => applyTransparency(parseInt(trS.value || '0', 10) > 0 ? 0 : DEFAULTS.transparency, true), false, sig);
     on(trS, 'input', () => {
       const snapped = snapTransparency(trS.value);
       trS.value = String(snapped);
@@ -482,6 +547,28 @@ export function bindControls(ac) {
     }, false, sig);
   }
 
+  for (const sel of ['#preview-caret-btn', '#notepad-preview-caret-btn', '#preview-caret-toggle']) {
+    const el = $(sel);
+    if (!el) continue;
+    on(el, 'mousedown', e => e.preventDefault(), false, sig);
+    on(el, 'click', e => {
+      e.stopPropagation();
+      applyPreviewCaret(!state.previewCaretEnabled, true);
+      window.__focusActiveEditor?.();
+    }, false, sig);
+  }
+
+  for (const sel of ['#slot-hints-btn', '#notepad-slot-hints-btn', '#slot-hints-toggle']) {
+    const el = $(sel);
+    if (!el) continue;
+    on(el, 'mousedown', e => e.preventDefault(), false, sig);
+    on(el, 'click', e => {
+      e.stopPropagation();
+      applySlotHints(!state.slotHintsEnabled, true);
+      window.__focusActiveEditor?.();
+    }, false, sig);
+  }
+
   const pvNavLed = $('#preview-nav-indicator');
   if (pvNavLed) {
     on(pvNavLed, 'mousedown', e => e.preventDefault(), false, sig);
@@ -517,6 +604,14 @@ export function bindControls(ac) {
     if (changes[KEYS.intuitiveNav]) applyIntuitiveNav(changes[KEYS.intuitiveNav].newValue, false);
     if (changes[KEYS.autoBraces]) applyAutoBraces(changes[KEYS.autoBraces].newValue, false);
     if (changes[KEYS.previewFollow]) applyPreviewFollow(changes[KEYS.previewFollow].newValue, false);
+    if (changes[KEYS.previewCaret]) applyPreviewCaret(changes[KEYS.previewCaret].newValue, false);
+    if (changes[KEYS.slotHints]) applySlotHints(changes[KEYS.slotHints].newValue, false);
+    if (changes[KEYS.equationHistory] && Array.isArray(changes[KEYS.equationHistory].newValue)) {
+      state.equationHistory = changes[KEYS.equationHistory].newValue;
+    }
+    if (changes[KEYS.favoriteEquations] && Array.isArray(changes[KEYS.favoriteEquations].newValue)) {
+      state.favoriteEquations = changes[KEYS.favoriteEquations].newValue;
+    }
   });
   sig.addEventListener('abort', unsub, { once: true });
 
@@ -547,4 +642,42 @@ export function bindControls(ac) {
       openDonatePage();
     }, false, sig);
   }
+}
+
+export function recordEquationHistory(latex) {
+  const clean = typeof latex === 'string' ? latex.trim() : '';
+  if (!clean) return;
+  state.equationHistory = [clean, ...state.equationHistory.filter(item => item !== clean)].slice(0, LIMITS.equationHistoryMax);
+  persist(KEYS.equationHistory, state.equationHistory);
+}
+
+export function toggleFavoriteEquation(latex) {
+  const clean = typeof latex === 'string' ? latex.trim() : '';
+  if (!clean) return false;
+  const exists = state.favoriteEquations.includes(clean);
+  if (exists) {
+    state.favoriteEquations = state.favoriteEquations.filter(item => item !== clean);
+  } else {
+    state.favoriteEquations = [clean, ...state.favoriteEquations].slice(0, 24);
+  }
+  persist(KEYS.favoriteEquations, state.favoriteEquations);
+  return !exists;
+}
+
+export function removeEquationFromHistory(latex) {
+  const clean = typeof latex === 'string' ? latex.trim() : '';
+  if (!clean) return;
+  if (state.equationHistory.includes(clean)) {
+    state.equationHistory = state.equationHistory.filter(item => item !== clean);
+    persist(KEYS.equationHistory, state.equationHistory);
+  }
+  if (state.favoriteEquations.includes(clean)) {
+    state.favoriteEquations = state.favoriteEquations.filter(item => item !== clean);
+    persist(KEYS.favoriteEquations, state.favoriteEquations);
+  }
+}
+
+export function clearEquationHistory() {
+  state.equationHistory = [];
+  persist(KEYS.equationHistory, []);
 }

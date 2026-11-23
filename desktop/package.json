@@ -1,6 +1,6 @@
 {
   "name": "mathglass-desktop",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "MathGlass Desktop — Επεξεργαστής LaTeX & Σημειωματάριο phpBB με πραγματική διαφάνεια 0%-100%",
   "author": "EtherealSpectrum",
   "license": "MIT",
@@ -15,8 +15,8 @@
     "dist:linux": "npm run prepare-web && electron-builder --linux"
   },
   "devDependencies": {
-    "electron": "^35.0.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
   },
   "build": {
     "appId": "com.etherealspectrum.mathglass.desktop",
@@ -73,5 +73,8 @@
       ],
       "artifactName": "${productName}-Desktop-${version}-linux-${arch}.${ext}"
     }
+  },
+  "allowScripts": {
+    "electron@45.4.1": true
   }
 }

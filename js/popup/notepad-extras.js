@@ -33,8 +33,25 @@ const TEMPLATES = [
     "id": "exercise-hide",
     "label": "Άσκηση με Κρυφή Λύση ([hide])",
     "snippet": "[b]Εκφώνηση:[/b] Να λυθεί στο $\\mathbb{R}$ η εξίσωση $x^2 - 5x + 6 = 0$.\n\n[hide=Ενδεικτική Λύση]\n[list=1]\n[*] Υπολογίζουμε τη διακρίνουσα: $\\Delta = (-5)^2 - 4 \\cdot 1 \\cdot 6 = 1 > 0$.\n[*] Οι ρίζες δίνονται από τον τύπο:\n[tex]x_{1,2} = \\frac{5 \\pm \\sqrt{1}}{2} \\implies x_1 = 2,\\quad x_2 = 3[/tex]\n[/list]\n[b]Απάντηση:[/b] $S = \\{2, 3\\}$\n[/hide]"
+  },
+  {
+    "id": "limit-deriv",
+    "label": "Όριο & Παράγωγος",
+    "snippet": "[tex]\\lim_{x \\to x_0} \\frac{f(x) - f(x_0)}{x - x_0} = f'(x_0)[/tex]"
+  },
+  {
+    "id": "theorem-quote",
+    "label": "Θεώρημα / Απόδειξη",
+    "snippet": "[quote=Θεώρημα]Έστω συνάρτηση $f : A \\to \\mathbb{R}$ συνεχής στο διάστημα $[\\alpha, \\beta]$.\n\n[b]Απόδειξη:[/b] Εφαρμόζουμε το θεώρημα Bolzano στη βοηθητική συνάρτηση $g(x) = f(x) - \\rho$.[/quote]"
+  },
+  {
+    "id": "bb-table",
+    "label": "Πίνακας Τιμών ([table])",
+    "snippet": "[table]\n[tr][th]$x$[/th][th]$0$[/th][th]$\\pi/2$[/th][th]$\\pi$[/th][/tr]\n[tr][td]$\\sin x$[/td][td]$0$[/td][td]$1$[/td][td]$0$[/td][/tr]\n[tr][td]$\\cos x$[/td][td]$1$[/td][td]$0$[/td][td]$-1$[/td][/tr]\n[/table]"
   }
 ];
+
+const overlayMetricsCache = new WeakMap();
 
 function updateCounter(ta, counterEl) {
   if (!ta || !counterEl) return;
@@ -47,15 +64,19 @@ function updateCounter(ta, counterEl) {
 
 function syncHighlightOverlay(ta, pre) {
   if (!ta || !pre) return;
-  const taCs = getComputedStyle(ta);
-  const preCs = getComputedStyle(pre);
-  const taBorderW = (parseFloat(taCs.borderLeftWidth) || 0) + (parseFloat(taCs.borderRightWidth) || 0);
-  const preBorderW = (parseFloat(preCs.borderLeftWidth) || 0) + (parseFloat(preCs.borderRightWidth) || 0);
-  const taSb = Math.max(0, ta.offsetWidth - ta.clientWidth - taBorderW);
-  const preSb = Math.max(0, pre.offsetWidth - pre.clientWidth - preBorderW);
-  const deltaSb = taSb - preSb;
-  const basePr = parseFloat(taCs.paddingRight) || 0;
-  pre.style.paddingRight = deltaSb !== 0 ? `${Math.max(0, basePr + deltaSb)}px` : '';
+  const key = `${ta.offsetWidth}:${ta.clientWidth}:${pre.offsetWidth}:${pre.clientWidth}:${ta.style.fontSize}:${pre.style.fontSize}`;
+  if (overlayMetricsCache.get(pre) !== key) {
+    overlayMetricsCache.set(pre, key);
+    const taCs = getComputedStyle(ta);
+    const preCs = getComputedStyle(pre);
+    const taBorderW = (parseFloat(taCs.borderLeftWidth) || 0) + (parseFloat(taCs.borderRightWidth) || 0);
+    const preBorderW = (parseFloat(preCs.borderLeftWidth) || 0) + (parseFloat(preCs.borderRightWidth) || 0);
+    const taSb = Math.max(0, ta.offsetWidth - ta.clientWidth - taBorderW);
+    const preSb = Math.max(0, pre.offsetWidth - pre.clientWidth - preBorderW);
+    const deltaSb = taSb - preSb;
+    const basePr = parseFloat(taCs.paddingRight) || 0;
+    pre.style.paddingRight = deltaSb !== 0 ? `${Math.max(0, basePr + deltaSb)}px` : '';
+  }
   pre.scrollTop = ta.scrollTop;
   pre.scrollLeft = ta.scrollLeft;
 }
@@ -195,9 +216,22 @@ function updateNotepadEditorCaret(resetBlink = false) {
   wrap.classList.add('np-custom-caret-active');
 
   if (resetBlink) {
-    caretEl.classList.remove('is-blinking');
-    void caretEl.offsetWidth;
-    caretEl.classList.add('is-blinking');
+    if (!caretEl.classList.contains('is-blinking')) {
+      caretEl.classList.add('is-blinking');
+    } else if (typeof caretEl.getAnimations === 'function') {
+      const anims = caretEl.getAnimations();
+      if (anims.length > 0) {
+        for (const a of anims) {
+          try { a.currentTime = 0; } catch { }
+        }
+      } else {
+        caretEl.classList.remove('is-blinking');
+        requestAnimationFrame(() => caretEl.classList.add('is-blinking'));
+      }
+    } else {
+      caretEl.classList.remove('is-blinking');
+      requestAnimationFrame(() => caretEl.classList.add('is-blinking'));
+    }
   } else if (!caretEl.classList.contains('is-blinking')) {
     caretEl.classList.add('is-blinking');
   }

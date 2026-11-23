@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="el" data-theme="dark" data-blur="true" style="color-scheme: normal;">
+<html lang="el" data-theme="dark" data-transparent="true" data-blur="true" style="color-scheme: normal; --panel-alpha: 0.65;">
 
 <head>
     <meta charset="UTF-8">
@@ -9,303 +9,6 @@
     <script src="lib/katex/katex.min.js"></script>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/notepad-placeholder-fix.css">
-    <style id="mg-live-preview-fix">
-        /* Ασφαλής στοίχιση & κύλιση μεγάλων εξισώσεων χωρίς αποκοπή αριστερά */
-        #preview-wrap:not(.align-left) {
-            display: flex;
-            justify-content: flex-start;
-            align-items: safe center;
-        }
-        #preview-wrap:not(.align-left) > #preview {
-            margin: auto;
-        }
-        #preview-wrap.align-left {
-            display: flex;
-            justify-content: flex-start;
-            align-items: safe center;
-        }
-        #preview-wrap.align-left > #preview {
-            margin: auto 0;
-        }
-        #preview {
-            max-width: none;
-        }
-        #preview .preview-partial-wrap {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-        }
-        #preview-wrap.align-left #preview .preview-partial-wrap {
-            align-items: flex-start;
-        }
-        #preview .preview-error-msg {
-            margin-top: 8px;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 11.5px;
-            line-height: 1.4;
-            max-width: 100%;
-            text-align: center;
-            background: rgba(239, 68, 68, 0.12);
-            border: 1px solid rgba(239, 68, 68, 0.28);
-        }
-        #preview-wrap.align-left #preview .preview-error-msg {
-            text-align: left;
-        }
-        .np-pos {
-            display: inline;
-            width: 0;
-            height: 0;
-            overflow: hidden;
-            pointer-events: none;
-        }
-        .np-math-display {
-            overflow-x: auto;
-            overflow-y: hidden;
-            max-width: 100%;
-            padding: 2px 4px;
-            border-radius: 6px;
-            transition: background-color 0.15s ease;
-        }
-        .np-math-inline {
-            border-radius: 4px;
-            transition: background-color 0.15s ease;
-        }
-        .np-math-active {
-            background-color: rgba(139, 123, 255, 0.06);
-            outline: 1px dashed rgba(139, 123, 255, 0.26);
-        }
-        html[data-theme="light"] .np-math-active {
-            background-color: rgba(67, 56, 202, 0.05);
-            outline: 1px dashed rgba(67, 56, 202, 0.24);
-        }
-        @keyframes mgCaretPulse {
-            0%, 45% { opacity: 1; }
-            55%, 95% { opacity: 0.22; }
-            100% { opacity: 1; }
-        }
-        .mg-katex-caret,
-        .katex-rule[style*="#8b7bfe"],
-        .katex-rule[style*="139, 123, 254"],
-        .rule[style*="#8b7bfe"],
-        .rule[style*="139, 123, 254"] {
-            color: #a78bfa !important;
-            border-color: currentColor !important;
-            animation: mgCaretPulse 1.05s ease-in-out infinite;
-            filter: drop-shadow(0 0 3px rgba(139, 123, 255, 0.55));
-            pointer-events: none;
-        }
-        html[data-theme="light"] .mg-katex-caret,
-        html[data-theme="light"] .katex-rule[style*="#8b7bfe"],
-        html[data-theme="light"] .katex-rule[style*="139, 123, 254"],
-        html[data-theme="light"] .rule[style*="#8b7bfe"],
-        html[data-theme="light"] .rule[style*="139, 123, 254"] {
-            color: #4338ca !important;
-            filter: drop-shadow(0 0 2px rgba(67, 56, 202, 0.35));
-        }
-        .mg-np-text-caret {
-            position: relative;
-            display: inline-block;
-            width: 0;
-            height: 1.15em;
-            vertical-align: text-bottom;
-            pointer-events: none;
-        }
-        .mg-np-text-caret::after {
-            content: "";
-            position: absolute;
-            left: -1px;
-            top: 0.05em;
-            width: 2px;
-            height: 1.08em;
-            border-radius: 1px;
-            background: #a78bfa;
-            box-shadow: 0 0 4px rgba(139, 123, 255, 0.75);
-            animation: mgCaretPulse 1.05s ease-in-out infinite;
-        }
-        html[data-theme="light"] .mg-np-text-caret::after {
-            background: #4338ca;
-            box-shadow: 0 0 3px rgba(67, 56, 202, 0.45);
-        }
-        .phpbb-center {
-            text-align: center;
-            margin: 4px 0;
-        }
-        .np-sel-start,
-        .np-sel-end {
-            display: none;
-        }
-        .mg-katex-sel-host {
-            position: relative !important;
-        }
-        .mg-sel-overlay {
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            z-index: 2;
-            opacity: 0.34;
-        }
-        .mg-sel-rect {
-            position: absolute;
-            background: var(--accent, #8b7bff);
-            border-radius: 2px;
-            pointer-events: none;
-        }
-        mark.mg-np-sel {
-            background: rgba(139, 123, 255, 0.34);
-            color: inherit;
-            border-radius: 2px;
-            padding: 0;
-        }
-        html[data-theme="light"] mark.mg-np-sel {
-            background: rgba(67, 56, 202, 0.24);
-        }
-        .mg-np-math-selected {
-            background-color: rgba(139, 123, 255, 0.26) !important;
-            outline: 1px solid rgba(139, 123, 255, 0.58);
-            border-radius: 4px;
-        }
-        html[data-theme="light"] .mg-np-math-selected {
-            background-color: rgba(67, 56, 202, 0.18) !important;
-            outline: 1px solid rgba(67, 56, 202, 0.45);
-        }
-        .mg-slot-overlay {
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            z-index: 1;
-        }
-        .mg-slot-box {
-            position: absolute;
-            box-sizing: border-box;
-            border: 1.25px dashed rgba(167, 139, 250, 0.84);
-            background: rgba(139, 123, 255, 0.08);
-            border-radius: 4px;
-            box-shadow: 0 0 0 1px rgba(139, 123, 255, 0.10);
-            pointer-events: none;
-        }
-        html[data-theme="light"] .mg-slot-box {
-            border-color: rgba(67, 56, 202, 0.74);
-            background: rgba(67, 56, 202, 0.06);
-            box-shadow: 0 0 0 1px rgba(67, 56, 202, 0.08);
-        }
-        .mg-nav-led {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            height: 20px;
-            padding: 0 7px;
-            border-radius: 999px;
-            border: 1px solid var(--line);
-            background: var(--btn-bg);
-            color: var(--ink-soft);
-            font-family: var(--sans);
-            font-size: 9.5px;
-            font-weight: 600;
-            letter-spacing: 0.1px;
-            cursor: pointer;
-            white-space: nowrap;
-            flex: 0 0 auto;
-            transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
-        }
-        .mg-nav-led:hover {
-            border-color: var(--accent);
-            color: var(--ink);
-        }
-        .mg-nav-led .mg-nav-dot {
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            background: rgba(148, 163, 184, 0.55);
-            flex-shrink: 0;
-            transition: background 0.18s ease, box-shadow 0.18s ease;
-        }
-        .mg-nav-led.is-on {
-            border-color: rgba(34, 197, 94, 0.55);
-            background: rgba(34, 197, 94, 0.14);
-            color: #4ade80;
-            box-shadow: 0 0 10px rgba(34, 197, 94, 0.18);
-        }
-        .mg-nav-led.is-on .mg-nav-dot {
-            background: #22c55e;
-            box-shadow: 0 0 6px #22c55e, 0 0 10px rgba(34, 197, 94, 0.85);
-        }
-        html[data-theme="light"] .mg-nav-led.is-on {
-            border-color: rgba(22, 163, 74, 0.5);
-            background: rgba(22, 163, 74, 0.10);
-            color: #15803d;
-            box-shadow: 0 0 8px rgba(22, 163, 74, 0.14);
-        }
-        html[data-theme="light"] .mg-nav-led.is-on .mg-nav-dot {
-            background: #16a34a;
-            box-shadow: 0 0 5px rgba(22, 163, 74, 0.75);
-        }
-        .mg-nav-led.is-locked-off {
-            opacity: 0.55;
-        }
-        .mg-nav-led.is-locked-off .mg-nav-dot {
-            background: rgba(239, 68, 68, 0.72);
-        }
-        .preview-controls button.mg-nav-led {
-            width: auto;
-            height: 20px;
-            padding: 0 7px;
-            font-size: 9.5px;
-            border-radius: 999px;
-            border: 1px solid var(--line);
-            background: var(--btn-bg);
-            color: var(--ink-soft);
-            gap: 4px;
-            margin-right: 2px;
-        }
-        .preview-controls button.mg-nav-led:hover {
-            border-color: var(--accent);
-            background: var(--btn-hover);
-            color: var(--ink);
-        }
-        .preview-controls button.mg-nav-led.is-on {
-            border-color: rgba(34, 197, 94, 0.55);
-            background: rgba(34, 197, 94, 0.14);
-            color: #4ade80;
-        }
-        html[data-theme="light"] .preview-controls button.mg-nav-led.is-on {
-            border-color: rgba(22, 163, 74, 0.5);
-            background: rgba(22, 163, 74, 0.12);
-            color: #15803d;
-        }
-        .preview-controls button.mg-tool-chip {
-            width: auto;
-            height: 20px;
-            padding: 0 7px;
-            font-family: var(--sans);
-            font-size: 9.5px;
-            font-weight: 600;
-            border-radius: 999px;
-            border: 1px solid var(--line);
-            background: var(--btn-bg);
-            color: var(--ink-soft);
-            margin-right: 2px;
-            white-space: nowrap;
-            flex: 0 0 auto;
-            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
-        }
-        .preview-controls button.mg-tool-chip:hover {
-            border-color: var(--accent);
-            background: var(--btn-hover);
-            color: var(--ink);
-        }
-        .preview-controls button.mg-tool-chip.active {
-            background: var(--accent-soft);
-            border-color: var(--accent);
-            color: var(--accent);
-        }
-        .preview-controls button.mg-tool-chip.active:hover {
-            background: var(--accent);
-            color: #ffffff;
-            filter: none;
-        }
-    </style>
     <script src="lib/html2canvas.min.js"></script>
     <script src="lib/jspdf.umd.min.js"></script>
 </head>
@@ -314,6 +17,22 @@
     <div class="toolbars-container" id="toolbars-container">
         <div class="toolbar-row" id="toolbar-row-1"></div>
         <div class="toolbar-row" id="toolbar-row-2"></div>
+    </div>
+    <div class="toolbar-search-wrap" id="toolbar-search-wrap">
+        <div class="toolbar-search-bar" id="toolbar-search-bar" role="search" aria-label="Αναζήτηση συμβόλων KaTeX">
+            <div class="toolbar-search-input-row">
+                <svg class="toolbar-search-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="search" id="toolbar-search-input" class="toolbar-search-input"
+                    placeholder="Αναζήτηση συμβόλου ή εντολής LaTeX (π.χ. κλάσμα, frac, άπειρο)..."
+                    autocomplete="off" spellcheck="false">
+                <button type="button" id="toolbar-search-clear" class="toolbar-search-action" title="Καθαρισμός αναζήτησης" aria-label="Καθαρισμός αναζήτησης">&times;</button>
+                <button type="button" id="toolbar-search-close" class="toolbar-search-action" title="Κλείσιμο αναζήτησης (Esc)" aria-label="Κλείσιμο αναζήτησης">Κλείσιμο</button>
+            </div>
+            <div class="toolbar-search-results" id="toolbar-search-results" role="listbox" aria-label="Αποτελέσματα συμβόλων"></div>
+        </div>
     </div>
     <main>
         <div class="highlight-wrap" id="latex-highlight-wrap">
@@ -332,6 +51,10 @@
                     title="Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ — Περιβάλλει εκθέτες, δείκτες, αριθμητές & κλείνει { } (Alt+J)">{ }</button>
                 <button class="mg-tool-chip active" id="follow-mode-btn" type="button" aria-pressed="true"
                     title="Παρακολούθηση Προεπισκόπησης: ΑΚΟΛΟΥΘΗΣΗ — Η προεπισκόπηση ακολουθεί αυτόματα τον κέρσορα καθώς γράφετε (Alt+5)">Ακολούθηση</button>
+                <button class="mg-tool-chip active" id="preview-caret-btn" type="button" aria-pressed="true"
+                    title="Κέρσορας Προεπισκόπησης: ΕΜΦΑΝΗΣ — Κλικ για απόκρυψη παλλόμενου δρομέα στη ζωντανή προεπισκόπηση (Alt+9)">Κέρσορας</button>
+                <button class="mg-tool-chip active" id="slot-hints-btn" type="button" aria-pressed="true"
+                    title="Υποδείξεις Πλαισίου: ΕΝΕΡΓΕΣ — Εμφάνιση διακεκομμένου πλαισίου γύρω από εκθέτες, δείκτες & κλάσματα (Alt+Shift+B)">Πλαίσια</button>
                 <button class="auto-badge active" id="preview-auto-badge" type="button" aria-pressed="true"
                     title="Αυτόματο μέγεθος (Alt+0)">AUTO</button>
                 <button id="preview-inline-btn" type="button" title="Αριστερή στοίχιση (Alt+A)" aria-pressed="false">
@@ -397,6 +120,7 @@
                     <button type="button" data-export-fmt="md">Markdown (.md)</button>
                     <div class="export-menu-divider" role="separator"></div>
                     <button type="button" data-export-fmt="mathml">Αντιγραφή MathML (MS Word)</button>
+                    <button type="button" data-export-fmt="raw-tex">Αντιγραφή καθαρού LaTeX</button>
                     <button type="button" data-export-fmt="bbcode">Αντιγραφή BBCode ([latex])</button>
                 </div>
             </div>
@@ -426,6 +150,10 @@
                     title="Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ — Περιβάλλει εκθέτες, δείκτες, αριθμητές & κλείνει { } (Alt+J)">{ }</button>
                 <button class="notepad-btn active" id="notepad-follow-mode-btn" type="button" aria-pressed="true"
                     title="Παρακολούθηση Προεπισκόπησης: ΑΚΟΛΟΥΘΗΣΗ — Η προεπισκόπηση ακολουθεί αυτόματα τον κέρσορα καθώς γράφετε (Alt+5)">Ακολούθηση</button>
+                <button class="notepad-btn active" id="notepad-preview-caret-btn" type="button" aria-pressed="true"
+                    title="Κέρσορας Προεπισκόπησης: ΕΜΦΑΝΗΣ — Κλικ για απόκρυψη παλλόμενου δρομέα στη ζωντανή προεπισκόπηση (Alt+9)">Κέρσορας</button>
+                <button class="notepad-btn active" id="notepad-slot-hints-btn" type="button" aria-pressed="true"
+                    title="Υποδείξεις Πλαισίου: ΕΝΕΡΓΕΣ — Εμφάνιση διακεκομμένου πλαισίου γύρω από εκθέτες, δείκτες & κλάσματα (Alt+Shift+B)">Πλαίσια</button>
                 <button class="notepad-btn" id="notepad-templates-btn" type="button" aria-pressed="false"
                     title="Εμφάνιση/Απόκρυψη έτοιμων προτύπων phpBB & KaTeX (Alt+L)">Πρότυπα ▾</button>
                 <button class="notepad-btn active" id="notepad-toolbar-toggle-btn" type="button" aria-pressed="true"
@@ -470,6 +198,28 @@
                     <button type="button" data-phpbb-size="200">[size=200]</button>
                 </div>
             </div>
+            <div class="phpbb-dropdown-wrap">
+                <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-color-btn"
+                    title="Χρώμα κειμένου ([color])">Χρώμα ▾</button>
+                <div class="phpbb-dropdown-menu phpbb-color-menu" id="phpbb-color-menu">
+                    <div class="phpbb-color-grid">
+                        <button type="button" class="phpbb-color-swatch" data-phpbb-color="#ef4444" title="Κόκκινο (#ef4444)" style="--swatch:#ef4444"></button>
+                        <button type="button" class="phpbb-color-swatch" data-phpbb-color="#f97316" title="Πορτοκαλί (#f97316)" style="--swatch:#f97316"></button>
+                        <button type="button" class="phpbb-color-swatch" data-phpbb-color="#eab308" title="Κίτρινο (#eab308)" style="--swatch:#eab308"></button>
+                        <button type="button" class="phpbb-color-swatch" data-phpbb-color="#22c55e" title="Πράσινο (#22c55e)" style="--swatch:#22c55e"></button>
+                        <button type="button" class="phpbb-color-swatch" data-phpbb-color="#06b6d4" title="Κυανό (#06b6d4)" style="--swatch:#06b6d4"></button>
+                        <button type="button" class="phpbb-color-swatch" data-phpbb-color="#3b82f6" title="Μπλε (#3b82f6)" style="--swatch:#3b82f6"></button>
+                        <button type="button" class="phpbb-color-swatch" data-phpbb-color="#8b5cf6" title="Βιολετί (#8b5cf6)" style="--swatch:#8b5cf6"></button>
+                        <button type="button" class="phpbb-color-swatch" data-phpbb-color="#ec4899" title="Ροζ (#ec4899)" style="--swatch:#ec4899"></button>
+                    </div>
+                    <div class="phpbb-color-custom-row">
+                        <input type="color" id="phpbb-color-custom-input" value="#8b7bff" title="Προσαρμοσμένο χρώμα">
+                        <button type="button" id="phpbb-color-custom-apply" class="phpbb-color-apply-btn">Εφαρμογή</button>
+                    </div>
+                </div>
+            </div>
+            <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-center-btn"
+                data-bb-wrap="[center]|[/center]|Κείμενο" title="Κεντράρισμα ([center]...[/center])">Κέντρο</button>
             <span class="phpbb-sep"></span>
             <button type="button" class="phpbb-tb-btn" id="phpbb-list-ul"
                 title="Λίστα με κουκκίδες ([list][*]...[/list])">•≡</button>
@@ -482,6 +232,16 @@
                 title="Σύνδεσμος ([url]) (Ctrl+K)">URL</button>
             <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-img-btn"
                 title="Εικόνα ([img])">IMG</button>
+            <div class="phpbb-dropdown-wrap">
+                <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-table-btn"
+                    title="Εισαγωγή πίνακα phpBB ([table])">Πίνακας ▾</button>
+                <div class="phpbb-dropdown-menu" id="phpbb-table-menu">
+                    <button type="button" data-phpbb-table="2x2">Πίνακας 2×2</button>
+                    <button type="button" data-phpbb-table="3x3">Πίνακας 3×3</button>
+                    <button type="button" data-phpbb-table="3x4">Πίνακας 3×4</button>
+                    <button type="button" data-phpbb-table="4x3">Πίνακας 4×3</button>
+                </div>
+            </div>
             <span class="phpbb-sep"></span>
             <button type="button" class="phpbb-tb-btn phpbb-tb-wide" data-bb-wrap="[quote]|[/quote]|Παράθεση..."
                 title="Παράθεση ([quote])">Quote</button>
@@ -578,30 +338,27 @@
 
     <!-- Ρυθμίσεις -->
     <div class="panel-popup" id="settings-popup">
-        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft);">Σετ Εργαλειοθήκης</div>
-        <select id="toolbar-dataset-select"
-            style="padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--btn-bg); color: var(--ink); font-family: var(--sans); font-size: 13px; margin-bottom: 4px;">
+        <div class="settings-section-label">Σετ Εργαλειοθήκης</div>
+        <select id="toolbar-dataset-select" class="settings-select">
             <option value="codecogs_alike">Πλήρες Σετ</option>
             <option value="basic">Βασικά Μαθηματικά</option>
             <option value="science">Επιστήμες / Μηχανική</option>
         </select>
-        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft);">Κείμενο Editor</div>
+        <div class="settings-section-label">Κείμενο Editor</div>
         <div class="editor-size-control" role="group">
             <button class="auto-badge active" id="editor-auto-badge" type="button" aria-pressed="true">AUTO</button>
             <button id="editor-zoom-out" type="button">Aa−</button>
             <input type="number" id="editor-zoom-label" min="70" max="200" step="1" value="100">
             <button id="editor-zoom-in" type="button">Aa+</button>
         </div>
-        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Κείμενο Σημειωματάριου
-        </div>
+        <div class="settings-section-label settings-section-label--spaced">Κείμενο Σημειωματάριου</div>
         <div class="editor-size-control" role="group">
             <button class="auto-badge active" id="notepad-auto-badge" type="button" aria-pressed="true">AUTO</button>
             <button id="notepad-zoom-out" type="button">Aa−</button>
             <input type="number" id="notepad-zoom-label" min="75" max="220" step="1" value="100">
             <button id="notepad-zoom-in" type="button">Aa+</button>
         </div>
-        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Προεπισκόπηση
-            Σημειωματάριου</div>
+        <div class="settings-section-label settings-section-label--spaced">Προεπισκόπηση Σημειωματάριου</div>
         <div class="editor-size-control" role="group">
             <button class="auto-badge active" id="notepad-preview-auto-badge" type="button"
                 aria-pressed="true">AUTO</button>
@@ -609,8 +366,7 @@
             <input type="number" id="notepad-preview-zoom-label" min="65" max="240" step="1" value="100">
             <button id="notepad-preview-zoom-in" type="button">Aa+</button>
         </div>
-        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Εργαλειοθήκη
-            Σημειωματάριου</div>
+        <div class="settings-section-label settings-section-label--spaced">Εργαλειοθήκη Σημειωματάριου</div>
         <div class="toolbar-size-control" role="group" aria-label="Μέγεθος γραμμάτων εργαλειοθήκης σημειωματάριου">
             <button class="auto-badge active" id="notepad-toolbar-auto-badge" type="button"
                 aria-pressed="true">AUTO</button>
@@ -618,15 +374,14 @@
             <input type="number" id="notepad-toolbar-size-label" min="80" max="200" step="10" value="100">
             <button id="notepad-toolbar-size-up" type="button">A+</button>
         </div>
-        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Μέγεθος Συμβόλων</div>
+        <div class="settings-section-label settings-section-label--spaced">Μέγεθος Συμβόλων</div>
         <div class="toolbar-size-control" role="group">
             <button class="auto-badge active" id="toolbar-auto-badge" type="button" aria-pressed="true">AUTO</button>
             <button id="toolbar-size-down" type="button">A−</button>
             <input type="number" id="toolbar-size-label" min="70" max="200" step="10" value="100">
             <button id="toolbar-size-up" type="button">A+</button>
         </div>
-        <div style="font-size: 12px; font-weight: bold; color: var(--ink-soft); margin-top: 6px;">Κουμπιά Κεφαλίδας
-        </div>
+        <div class="settings-section-label settings-section-label--spaced">Κουμπιά Κεφαλίδας</div>
         <div class="toolbar-size-control" role="group" aria-label="Μέγεθος κουμπιών κεφαλίδας">
             <button class="auto-badge active" id="header-btn-auto-badge" type="button" aria-pressed="true">AUTO</button>
             <button id="header-btn-size-down" type="button">A−</button>
@@ -641,6 +396,10 @@
             aria-pressed="true" title="Αυτόματα άγκιστρα { } σε εκθέτες, δείκτες, αριθμητές κ.λπ. (Alt+J)">Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ</button>
         <button class="syntax-toggle-btn active" id="follow-mode-toggle" type="button"
             aria-pressed="true" title="Κλείδωμα/ξεκλείδωμα αυτόματης παρακολούθησης της ζωντανής προεπισκόπησης καθώς γράφετε (Alt+5)">Παρακολούθηση Προεπισκόπησης: ΑΚΟΛΟΥΘΗΣΗ</button>
+        <button class="syntax-toggle-btn active" id="preview-caret-toggle" type="button"
+            aria-pressed="true" title="Εμφάνιση/Απόκρυψη παλλόμενου κέρσορα μέσα στη ζωντανή προεπισκόπηση (Alt+9)">Κέρσορας Προεπισκόπησης: ΕΜΦΑΝΗΣ</button>
+        <button class="syntax-toggle-btn active" id="slot-hints-toggle" type="button"
+            aria-pressed="true" title="Εμφάνιση/Απόκρυψη διακεκομμένων πλαισίων ενεργού πεδίου LaTeX (Alt+Shift+B)">Υποδείξεις Πλαισίου: ΕΝΕΡΓΕΣ</button>
 
         <div class="settings-donate-wrap">
             <div class="settings-donate-card active" id="settings-donate-card">
@@ -738,24 +497,19 @@
 
     <!-- Modal Συνδέσμου / Εικόνας / GeoGebra -->
     <div class="modal-overlay" id="phpbb-media-modal">
-        <div class="modal-content" style="max-width: 360px;">
+        <div class="modal-content phpbb-media-dialog">
             <div class="modal-header">
                 <h2 id="phpbb-media-title">Εισαγωγή Συνδέσμου</h2>
                 <button class="modal-close" id="close-phpbb-media" title="Κλείσιμο (Esc)">&times;</button>
             </div>
-            <div style="display:flex;flex-direction:column;gap:8px;margin:8px 0;">
+            <div class="phpbb-media-form">
                 <div>
-                    <label id="phpbb-media-url-label" for="phpbb-media-url"
-                        style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Διεύθυνση URL:</label>
-                    <input type="text" id="phpbb-media-url" placeholder="https://..."
-                        style="width:100%;padding:7px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);">
+                    <label id="phpbb-media-url-label" class="phpbb-media-label" for="phpbb-media-url">Διεύθυνση URL:</label>
+                    <input type="text" id="phpbb-media-url" class="phpbb-media-input" placeholder="https://...">
                 </div>
                 <div id="phpbb-media-text-wrap">
-                    <label for="phpbb-media-text"
-                        style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Κείμενο συνδέσμου
-                        (προαιρετικό):</label>
-                    <input type="text" id="phpbb-media-text" placeholder="Κείμενο..."
-                        style="width:100%;padding:7px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);">
+                    <label class="phpbb-media-label" for="phpbb-media-text">Κείμενο συνδέσμου (προαιρετικό):</label>
+                    <input type="text" id="phpbb-media-text" class="phpbb-media-input" placeholder="Κείμενο...">
                 </div>
             </div>
             <div class="modal-footer">
@@ -764,6 +518,8 @@
             </div>
         </div>
     </div>
+
+    <div class="latex-ac-popup" id="latex-ac-popup" role="listbox" aria-label="Προτάσεις εντολών LaTeX"></div>
 
     <script src="js/ui-init.js"></script>
     <script src="js/data/dataBasicMaths.js"></script>

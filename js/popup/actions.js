@@ -1,5 +1,5 @@
 import { $, on } from '../core/dom.js';
-import { state } from './settings.js';
+import { state, recordEquationHistory } from './settings.js';
 import { MSG } from '../core/constants.js';
 import { translateLatexErrorToGreek, translateAppErrorToGreek } from '../core/errors.js';
 import { tokenizeHybridLatex, renderPhpbbHtml } from './notepad.js';
@@ -181,17 +181,29 @@ export async function runExport(mode, format, btn) {
       const mml = katex.renderToString(trimmed, { throwOnError: true, displayMode: true, output: 'mathml' });
       const m = mml.match(/<math[\s\S]*?<\/math>/);
       await copyText(m ? m[0] : mml, btn);
+    } else if (format === 'raw-tex') {
+      await copyText(trimmed, btn);
     } else if (format === 'tex') {
       triggerDownload(new Blob([trimmed], { type: 'text/x-tex;charset=utf-8' }), `${baseName}.tex`);
     } else if (format === 'md') {
       triggerDownload(new Blob([mode === 'editor' ? `$$\n${trimmed}\n$$\n` : raw], { type: 'text/markdown;charset=utf-8' }), `${baseName}.md`);
     } else if (format === 'svg') {
-      const body = mode === 'editor' ? katex.renderToString(trimmed, { throwOnError: true, displayMode: true }) : renderPhpbbHtml(raw, true);
+      const temp = buildExportContainer(mode, raw, 'white');
+      document.body.appendChild(temp);
+      let width = mode === 'notepad' ? 760 : 880;
+      let height = mode === 'notepad' ? 520 : 260;
+      let body = '';
+      try {
+        const rect = temp.getBoundingClientRect();
+        width = Math.max(180, Math.ceil(rect.width) + 12);
+        height = Math.max(80, Math.ceil(rect.height) + 12);
+        body = temp.innerHTML;
+      } finally {
+        temp.remove();
+      }
       const wrapStyle = mode === 'notepad'
-        ? 'font-family:sans-serif;font-size:15px;line-height:1.7;color:#111827;background:#ffffff;padding:24px;white-space:pre-wrap;word-break:break-word;'
-        : 'font-size:22px;color:#111827;background:#ffffff;padding:24px;display:inline-block;';
-      const width = mode === 'notepad' ? 760 : 880;
-      const height = mode === 'notepad' ? 520 : 260;
+        ? 'font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.7;color:#111827;background:#ffffff;padding:28px 32px;white-space:pre-wrap;word-break:break-word;width:720px;box-sizing:border-box;'
+        : 'font-size:24px;color:#111827;background:#ffffff;padding:24px 28px;display:inline-block;';
       const svgDoc = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n  <foreignObject width="100%" height="100%">\n    <div xmlns="http://www.w3.org/1999/xhtml" style="${wrapStyle}">\n      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />\n      ${body}\n    </div>\n  </foreignObject>\n</svg>\n`;
       triggerDownload(new Blob([svgDoc], { type: 'image/svg+xml;charset=utf-8' }), `${baseName}.svg`);
       if (btn) feedback(btn, 'Έτοιμο!', '#4caf50');
@@ -207,8 +219,14 @@ export async function runExport(mode, format, btn) {
 
 export function init(ac) {
   const sig = ac.signal;
-  on($('#copy-btn'), 'click', function () { copyText(wrappedCode(), this); }, false, sig);
-  on($('#insert-btn'), 'click', function () { insertTextToPage(wrappedCode(), this); }, false, sig);
+  on($('#copy-btn'), 'click', function () {
+    if (state.ta?.value?.trim()) recordEquationHistory(state.ta.value);
+    copyText(wrappedCode(), this);
+  }, false, sig);
+  on($('#insert-btn'), 'click', function () {
+    if (state.ta?.value?.trim()) recordEquationHistory(state.ta.value);
+    insertTextToPage(wrappedCode(), this);
+  }, false, sig);
 
   const bindMenu = (btnSel, menuSel, mode) => {
     const btn = $(btnSel), menu = $(menuSel);

@@ -74,12 +74,14 @@ export function reportNaturalSize(delay) {
     const headerH = q('.standalone-header')?.offsetHeight || 0;
     const tbEl = q('#toolbars-container');
     const tbH = (tbEl && !tbEl.classList.contains('hidden')) ? tbEl.offsetHeight : 0;
+    const tsEl = q('#toolbar-search-wrap');
+    const tsH = tsEl ? tsEl.offsetHeight : 0;
     const rzEl = q('#resizer-middle');
     const rzH = (rzEl && !rzEl.classList.contains('hidden')) ? rzEl.offsetHeight : 0;
     const ftH = q('footer')?.offsetHeight || 120;
     const pvHidden = q('.preview-outer')?.classList.contains('hidden');
     const pvMin = pvHidden ? 0 : Math.max(50, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--preview-min-height')) || 50);
-    window.parent.postMessage({ type: MSG.PANEL_NATURAL_SIZE, height: Math.ceil(headerH + tbH + 50 - rzH + pvMin + ftH + 12) }, '*');
+    window.parent.postMessage({ type: MSG.PANEL_NATURAL_SIZE, height: Math.ceil(headerH + tbH + tsH + 50 - rzH + pvMin + ftH + 12) }, '*');
   })), delay ?? 60);
 }
 

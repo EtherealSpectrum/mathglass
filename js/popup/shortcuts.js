@@ -10,6 +10,8 @@ import {
   applyIntuitiveNav,
   applyAutoBraces,
   applyPreviewFollow,
+  applyPreviewCaret,
+  applySlotHints,
 } from './settings.js';
 import * as toolbar from './toolbar.js';
 import * as notepad from './notepad.js';
@@ -56,6 +58,12 @@ const SHORTCUT_HINTS = [
   ['#follow-mode-btn', 'Alt+5', 'Παρακολούθηση προεπισκόπησης (Ακολούθηση / Σταθερή)'],
   ['#notepad-follow-mode-btn', 'Alt+5', 'Παρακολούθηση προεπισκόπησης (Ακολούθηση / Σταθερή)'],
   ['#follow-mode-toggle', 'Alt+5', 'Παρακολούθηση Προεπισκόπησης'],
+  ['#preview-caret-btn', 'Alt+9', 'Εμφάνιση/Απόκρυψη κέρσορα ζωντανής προεπισκόπησης'],
+  ['#notepad-preview-caret-btn', 'Alt+9', 'Εμφάνιση/Απόκρυψη κέρσορα ζωντανής προεπισκόπησης'],
+  ['#preview-caret-toggle', 'Alt+9', 'Κέρσορας Προεπισκόπησης'],
+  ['#slot-hints-btn', 'Alt+Shift+B', 'Εμφάνιση/Απόκρυψη διακεκομμένων πλαισίων ενεργού πεδίου LaTeX'],
+  ['#notepad-slot-hints-btn', 'Alt+Shift+B', 'Εμφάνιση/Απόκρυψη διακεκομμένων πλαισίων ενεργού πεδίου LaTeX'],
+  ['#slot-hints-toggle', 'Alt+Shift+B', 'Υποδείξεις Πλαισίου LaTeX'],
   ['#notepad-pull-btn', 'Alt+E', 'Επικόλληση της τρέχουσας εξίσωσης από τον Editor'],
   ['#notepad-auto-dollar-btn', 'Alt+4', 'Αυτόματο $...$'],
   ['#phpbb-headings-btn', 'Alt+Shift+H', 'Επικεφαλίδες H1–H7 ([size][b])'],
@@ -65,6 +73,8 @@ const SHORTCUT_HINTS = [
   ['[data-bb-wrap="[*] ||στοιχείο"]', 'Alt+8', 'Στοιχείο λίστας ([*])'],
   ['#phpbb-img-btn', 'Alt+Shift+I', 'Εικόνα ([img])'],
   ['#phpbb-ggb-btn', 'Alt+Shift+G', 'GeoGebra ([ggb])'],
+  ['#phpbb-center-btn', 'Alt+Shift+C', 'Κεντράρισμα ([center])'],
+  ['#toolbar-search-btn', 'Alt+/', 'Αναζήτηση συμβόλων KaTeX (Alt+/ ή Ctrl+Shift+F)'],
   ['#notepad-clear-btn', 'Alt+Shift+Backspace', 'Εκκαθάριση σημειωματάριου'],
   ['[data-bb-wrap="[b]|[/b]|έντονο"]', 'Ctrl+B', 'Έντονα ([b]...[/b])'],
   ['[data-bb-wrap="[i]|[/i]|πλάγιο"]', 'Ctrl+I', 'Πλάγια ([i]...[/i])'],
@@ -98,6 +108,14 @@ function applyShortcutTooltips() {
 }
 
 function closeActiveOverlays() {
+  if (window.__isLatexAutocompleteOpen?.()) {
+    window.__closeLatexAutocomplete?.();
+    return true;
+  }
+  if ($('#toolbar-search-bar')?.classList.contains('active')) {
+    toolbar.closeSymbolSearch(false);
+    return true;
+  }
   for (const sel of ['#matrix-modal', '#phpbb-media-modal']) {
     const m = $(sel);
     if (m?.classList.contains('active')) {
@@ -130,6 +148,7 @@ function isTextOverlayOpen() {
     !document.body.classList.contains('notepad-reader-edit');
   return Boolean(
     inReaderOnly ||
+    $('#toolbar-search-bar')?.classList.contains('active') ||
     $('#matrix-modal')?.classList.contains('active') ||
     $('#phpbb-media-modal')?.classList.contains('active') ||
     $('#settings-popup')?.classList.contains('active') ||
@@ -203,6 +222,11 @@ function handleShortcutEvent(e, isFromHost = false) {
       if (e.code === 'KeyK') { if (!isFromHost) e.preventDefault?.(); $('#phpbb-url-btn')?.click(); return true; }
       if (e.code === 'Backslash') { if (!isFromHost) e.preventDefault?.(); $('#phpbb-clear-fmt-btn')?.click(); scheduleEditorFocus(false); return true; }
     }
+    if (e.shiftKey && e.code === 'KeyF') {
+      if (!isFromHost) e.preventDefault?.();
+      toolbar.toggleSymbolSearch();
+      return true;
+    }
     if (inNotepad && isNpFocused && e.shiftKey) {
       if (e.code === 'KeyX') { if (!isFromHost) e.preventDefault?.(); $('[data-bb-wrap="[s]|[/s]|διαγραφή"]')?.click(); scheduleEditorFocus(false); return true; }
       if (e.code === 'Digit8') { if (!isFromHost) e.preventDefault?.(); $('#phpbb-list-ul')?.click(); scheduleEditorFocus(false); return true; }
@@ -243,6 +267,11 @@ function handleShortcutEvent(e, isFromHost = false) {
           return true;
         }
         return false;
+      case 'KeyB':
+        if (!isFromHost) e.preventDefault?.();
+        applySlotHints(!state.slotHintsEnabled, true);
+        scheduleEditorFocus(false);
+        return true;
       case 'KeyH':
         if (inNotepad) {
           if (!isFromHost) e.preventDefault?.();
@@ -268,6 +297,14 @@ function handleShortcutEvent(e, isFromHost = false) {
         if (inNotepad) {
           if (!isFromHost) e.preventDefault?.();
           $('#phpbb-ggb-btn')?.click();
+          return true;
+        }
+        return false;
+      case 'KeyC':
+        if (inNotepad) {
+          if (!isFromHost) e.preventDefault?.();
+          $('#phpbb-center-btn')?.click();
+          scheduleEditorFocus(false);
           return true;
         }
         return false;
@@ -311,6 +348,10 @@ function handleShortcutEvent(e, isFromHost = false) {
   }
 
   switch (e.code) {
+    case 'Slash':
+      if (!isFromHost) e.preventDefault?.();
+      toolbar.toggleSymbolSearch();
+      return true;
     case 'KeyJ':
       if (!isFromHost) e.preventDefault?.();
       applyAutoBraces(!state.autoBracesEnabled, true);
@@ -540,6 +581,12 @@ function handleShortcutEvent(e, isFromHost = false) {
         return true;
       }
       return false;
+    case 'Digit9':
+    case 'Numpad9':
+      if (!isFromHost) e.preventDefault?.();
+      applyPreviewCaret(!state.previewCaretEnabled, true);
+      scheduleEditorFocus(false);
+      return true;
     case 'Equal':
     case 'NumpadAdd':
       if (!isFromHost) e.preventDefault?.();

@@ -46,6 +46,7 @@ let lastRenderedTheme = null;
 let activeMathEl = null;
 const cleanMathHtmlMap = new WeakMap();
 const mathHtmlCache = new Map();
+const hybridTokenCache = new Map();
 
 const POS_MARK_RE = /\uFFF0POS:(\d+)\uFFF1/g;
 const CARET_MARK = '\uFFF2CARET\uFFF3';
@@ -276,6 +277,13 @@ function scanLatexChunk(chunk, baseOffset, tokens) {
 }
 
 export function tokenizeHybridLatex(input) {
+  if (typeof input !== 'string') return [];
+  if (hybridTokenCache.has(input)) {
+    const cached = hybridTokenCache.get(input);
+    hybridTokenCache.delete(input);
+    hybridTokenCache.set(input, cached);
+    return cached;
+  }
   const tokens = [];
   const codeRe = /\[code\]([\s\S]*?)\[\/code\]/gi;
   let lastIdx = 0;
@@ -298,6 +306,10 @@ export function tokenizeHybridLatex(input) {
   if (lastIdx < input.length) {
     scanLatexChunk(input.slice(lastIdx), lastIdx, tokens);
   }
+  if (hybridTokenCache.size >= 16) {
+    hybridTokenCache.delete(hybridTokenCache.keys().next().value);
+  }
+  hybridTokenCache.set(input, tokens);
   return tokens;
 }
 
@@ -739,7 +751,15 @@ function resolvePlainClickOffset(previewEl, src, clickX, clickY, clickTarget) {
     return clamp(tokStart + 6 + leadWs + charOff, tokStart, tokEnd);
   }
 
-  const cp = caretPointFromXY(clickX, clickY);
+  let cp = caretPointFromXY(clickX, clickY);
+  if (!cp || !previewEl.contains(cp.node)) {
+    const pRect = previewEl.getBoundingClientRect();
+    if (pRect.width > 4 && clickY >= pRect.top && clickY <= pRect.bottom) {
+      const clampedX = clamp(clickX, pRect.left + 2, pRect.right - 2);
+      const retry = caretPointFromXY(clampedX, clickY);
+      if (retry && previewEl.contains(retry.node)) cp = retry;
+    }
+  }
   if (!cp || !previewEl.contains(cp.node)) {
     const lastEl = previewEl.lastElementChild;
     if (lastEl && clickY > lastEl.getBoundingClientRect().bottom) return src.length;
@@ -859,6 +879,8 @@ function restoreActiveMathBlock() {
   if (activeMathEl && activeMathEl.isConnected) {
     activeMathEl.classList.remove('np-math-active');
     clearActiveSlotHighlight(activeMathEl);
+    delete activeMathEl.dataset.npSrc;
+    delete activeMathEl.dataset.npTheme;
     const clean = cleanMathHtmlMap.get(activeMathEl);
     if (typeof clean === 'string') {
       activeMathEl.innerHTML = clean;
@@ -984,14 +1006,28 @@ function updateNotepadCursorTracking(shouldScroll = false) {
         cleanMathHtmlMap.set(matchedMath, matchedMath.innerHTML);
       }
       const disp = matchedMath.getAttribute('data-np-display') === '1';
-      matchedMath.innerHTML = renderSingleMathInner(rawMath, disp, isLight, cursorPos - cs);
-      caretEl = markCaretElement(matchedMath);
-      applyActiveSlotHighlight(rawMath, cursorPos - cs, matchedMath, {
-        displayMode: disp,
-        alignLeft: false,
-        buildBalancedCandidate,
-        injectLatexCaret,
-      });
+      const showPreviewCaret = state.previewCaretEnabled !== false;
+      const themeTag = isLight ? 'L' : 'D';
+      const canSkipInnerRender = !showPreviewCaret
+        && matchedMath === activeMathEl
+        && matchedMath.dataset.npSrc === rawMath
+        && matchedMath.dataset.npTheme === themeTag;
+      if (!canSkipInnerRender) {
+        matchedMath.innerHTML = renderSingleMathInner(rawMath, disp, isLight, showPreviewCaret ? (cursorPos - cs) : null);
+        matchedMath.dataset.npSrc = rawMath;
+        matchedMath.dataset.npTheme = themeTag;
+      }
+      caretEl = showPreviewCaret ? markCaretElement(matchedMath) : null;
+      if (state.slotHintsEnabled !== false) {
+        applyActiveSlotHighlight(rawMath, cursorPos - cs, matchedMath, {
+          displayMode: disp,
+          alignLeft: false,
+          buildBalancedCandidate,
+          injectLatexCaret,
+        });
+      } else {
+        clearActiveSlotHighlight(matchedMath);
+      }
     } else {
       clearActiveSlotHighlight(matchedMath);
     }
@@ -1121,14 +1157,15 @@ export function renderHybridPreview(force = false, shouldScroll = false) {
 
   progScrolling = true;
   try {
+    const showPreviewCaret = state.previewCaretEnabled !== false;
     if (!src.trim()) {
       const inReaderEdit = document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit');
-      previewEl.innerHTML = (inReaderEdit ? '<span class="mg-np-text-caret" aria-hidden="true"></span>' : '') +
+      previewEl.innerHTML = (inReaderEdit && showPreviewCaret ? '<span class="mg-np-text-caret" aria-hidden="true"></span>' : '') +
         '<span class="np-placeholder">Η υβριδική προεπισκόπηση (phpBB + KaTeX) θα εμφανιστεί εδώ…</span>';
     } else {
       previewEl.innerHTML = renderPhpbbHtml(src, isLight, {
         trackCursor: !sel.active,
-        caretOffset: sel.active ? null : cursorPos,
+        caretOffset: (!sel.active && showPreviewCaret) ? cursorPos : null,
         selection: sel.active ? { start: sel.start, end: sel.end } : null,
       });
       if (sel.active) {
@@ -1721,6 +1758,20 @@ export function init(ac) {
       if (target === lastProgMath.el && Math.abs(target.scrollLeft - lastProgMath.left) < 2) return;
       state.notepadUserScrolled = true;
     }, { passive: true, capture: true }, sig);
+
+    if (typeof ResizeObserver !== 'undefined') {
+      let lastPreviewW = Math.round(previewEl.clientWidth);
+      const refreshOnResize = rafThrottle(() => {
+        if (!notepadOpen || !previewEl.isConnected) return;
+        const w = Math.round(previewEl.clientWidth);
+        if (w <= 0 || w === lastPreviewW) return;
+        lastPreviewW = w;
+        updateNotepadCursorTracking(false);
+      });
+      const previewRo = new ResizeObserver(refreshOnResize);
+      previewRo.observe(previewEl);
+      sig.addEventListener('abort', () => previewRo.disconnect(), { once: true });
+    }
   }
 
   const toggleBtn = $('#notepad-toggle');
@@ -1739,8 +1790,15 @@ export function init(ac) {
   }
   const hBtn = $('#phpbb-headings-btn'), hMenu = $('#phpbb-headings-menu');
   const sBtn = $('#phpbb-size-btn'), sMenu = $('#phpbb-size-menu');
+  const cBtn = $('#phpbb-color-btn'), cMenu = $('#phpbb-color-menu');
+  const tBtn = $('#phpbb-table-btn'), tMenu = $('#phpbb-table-menu');
+  const closeAllPhpbbMenus = (except = null) => {
+    for (const m of [hMenu, sMenu, cMenu, tMenu]) {
+      if (m && m !== except) m.classList.remove('active');
+    }
+  };
   if (hBtn && hMenu) {
-    on(hBtn, 'click', e => { e.stopPropagation(); sMenu?.classList.remove('active'); hMenu.classList.toggle('active'); }, false, sig);
+    on(hBtn, 'click', e => { e.stopPropagation(); closeAllPhpbbMenus(hMenu); hMenu.classList.toggle('active'); }, false, sig);
     hMenu.querySelectorAll('[data-phpbb-h]').forEach(b => {
       on(b, 'click', e => {
         e.stopPropagation();
@@ -1751,7 +1809,7 @@ export function init(ac) {
     });
   }
   if (sBtn && sMenu) {
-    on(sBtn, 'click', e => { e.stopPropagation(); hMenu?.classList.remove('active'); sMenu.classList.toggle('active'); }, false, sig);
+    on(sBtn, 'click', e => { e.stopPropagation(); closeAllPhpbbMenus(sMenu); sMenu.classList.toggle('active'); }, false, sig);
     sMenu.querySelectorAll('[data-phpbb-size]').forEach(b => {
       on(b, 'click', e => {
         e.stopPropagation();
@@ -1761,7 +1819,45 @@ export function init(ac) {
       }, false, sig);
     });
   }
-  on(document, 'click', () => { hMenu?.classList.remove('active'); sMenu?.classList.remove('active'); }, false, sig);
+  if (cBtn && cMenu) {
+    on(cBtn, 'click', e => { e.stopPropagation(); closeAllPhpbbMenus(cMenu); cMenu.classList.toggle('active'); }, false, sig);
+    on(cMenu, 'click', e => e.stopPropagation(), false, sig);
+    cMenu.querySelectorAll('[data-phpbb-color]').forEach(b => {
+      on(b, 'click', e => {
+        e.stopPropagation();
+        const col = b.getAttribute('data-phpbb-color');
+        if (col) wrapInNotepad(`[color=${col}]`, '[/color]', 'κείμενο');
+        cMenu.classList.remove('active');
+      }, false, sig);
+    });
+    const customColInput = $('#phpbb-color-custom-input');
+    const customColApply = $('#phpbb-color-custom-apply');
+    if (customColApply && customColInput) {
+      on(customColApply, 'click', e => {
+        e.stopPropagation();
+        wrapInNotepad(`[color=${customColInput.value || '#8b7bff'}]`, '[/color]', 'κείμενο');
+        cMenu.classList.remove('active');
+      }, false, sig);
+    }
+  }
+  if (tBtn && tMenu) {
+    on(tBtn, 'click', e => { e.stopPropagation(); closeAllPhpbbMenus(tMenu); tMenu.classList.toggle('active'); }, false, sig);
+    tMenu.querySelectorAll('[data-phpbb-table]').forEach(b => {
+      on(b, 'click', e => {
+        e.stopPropagation();
+        const [rRaw, cRaw] = (b.getAttribute('data-phpbb-table') || '3x3').split('x');
+        const rows = Math.max(2, Math.min(8, parseInt(rRaw, 10) || 3));
+        const cols = Math.max(1, Math.min(8, parseInt(cRaw, 10) || 3));
+        const head = '[tr]' + Array.from({ length: cols }, (_, ci) => `[th]Στήλη ${ci + 1}[/th]`).join('') + '[/tr]';
+        const bodyRows = Array.from({ length: rows - 1 }, (_, ri) =>
+          '[tr]' + Array.from({ length: cols }, (_, ci) => `[td]${ri === 0 && ci === 0 ? 'Τιμή' : '...'}[/td]`).join('') + '[/tr]'
+        ).join('\n');
+        wrapInNotepad('', '', `[table]\n${head}\n${bodyRows}\n[/table]`);
+        tMenu.classList.remove('active');
+      }, false, sig);
+    });
+  }
+  on(document, 'click', () => closeAllPhpbbMenus(), false, sig);
 
   document.querySelectorAll('[data-bb-wrap]').forEach(b => {
     on(b, 'click', () => {

@@ -363,29 +363,107 @@ function buildProbePass(trimmed) {
   return { chosen, probeMeta, probedTex };
 }
 
-function createProbeClone(liveRoot, displayMode) {
+const probeClones = { display: null, inline: null };
+
+function getInlineAvailableWidth(liveRoot) {
+  if (!liveRoot) return 300;
+  const liveRect = liveRoot.getBoundingClientRect();
   const cs = getComputedStyle(liveRoot);
-  const clone = document.createElement(displayMode ? 'div' : 'span');
-  clone.style.position = 'fixed';
-  clone.style.left = '-99999px';
-  clone.style.top = '0';
-  clone.style.visibility = 'hidden';
-  clone.style.pointerEvents = 'none';
-  clone.style.margin = '0';
-  clone.style.fontSize = cs.fontSize;
-  clone.style.fontFamily = cs.fontFamily;
-  clone.style.lineHeight = cs.lineHeight;
-  clone.style.letterSpacing = cs.letterSpacing;
-  clone.style.textAlign = cs.textAlign;
-  clone.style.boxSizing = 'border-box';
-  if (displayMode) {
-    clone.style.width = Math.max(40, liveRoot.clientWidth) + 'px';
+  const marginH = (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0);
+  let p = liveRoot.parentElement;
+  while (p && p !== document.body && p !== document.documentElement) {
+    const pcs = getComputedStyle(p);
+    if (pcs.display !== 'inline' && pcs.display !== 'contents') {
+      const pRect = p.getBoundingClientRect();
+      const padH = (parseFloat(pcs.paddingLeft) || 0) + (parseFloat(pcs.paddingRight) || 0);
+      const bdrH = (parseFloat(pcs.borderLeftWidth) || 0) + (parseFloat(pcs.borderRightWidth) || 0);
+      const rawInner = pRect.width - bdrH - padH;
+      const clientInner = p.clientWidth > 0 ? (p.clientWidth - padH) : rawInner;
+      const innerW = (rawInner - clientInner > 2) ? clientInner : rawInner;
+      const avail = innerW - marginH;
+      if (avail > 20) {
+        return Math.max(40, avail, liveRect.width || 0);
+      }
+      break;
+    }
+    p = p.parentElement;
+  }
+  return Math.max(40, liveRect.width || 300);
+}
+
+function getReusableProbeClone(liveRoot, displayMode, inlineMaxWidth = null) {
+  const cs = getComputedStyle(liveRoot);
+  const slotKey = displayMode ? 'display' : 'inline';
+  let clone = probeClones[slotKey];
+  if (!clone || !clone.isConnected) {
+    clone = document.createElement(displayMode ? 'div' : 'span');
+    clone.className = displayMode ? 'mg-probe-display' : 'mg-probe-inline';
+    clone.setAttribute('aria-hidden', 'true');
+    clone.style.position = 'fixed';
+    clone.style.left = '-99999px';
+    clone.style.top = '0';
+    clone.style.visibility = 'hidden';
+    clone.style.pointerEvents = 'none';
+    clone.style.margin = '0';
+    clone.style.boxSizing = 'border-box';
+    clone.style.contain = 'layout style';
+    if (!displayMode) {
+      clone.style.display = 'inline-block';
+      clone.style.width = 'auto';
+    }
+    document.body.appendChild(clone);
+    probeClones[slotKey] = clone;
+  }
+
+  const nextWidth = displayMode
+    ? `${Math.max(40, liveRoot.getBoundingClientRect().width || liveRoot.clientWidth)}px`
+    : 'auto';
+  const nextMaxWidth = displayMode
+    ? 'none'
+    : `${Math.max(40, inlineMaxWidth ?? getInlineAvailableWidth(liveRoot))}px`;
+  const nextWhiteSpace = displayMode ? (cs.whiteSpace || 'normal') : (cs.whiteSpace || 'pre-wrap');
+  const nextWordBreak = cs.wordBreak || 'normal';
+  const nextOverflowWrap = cs.overflowWrap || 'normal';
+
+  if (
+    clone.__mgFontSize !== cs.fontSize ||
+    clone.__mgFontFamily !== cs.fontFamily ||
+    clone.__mgLineHeight !== cs.lineHeight ||
+    clone.__mgLetterSpacing !== cs.letterSpacing ||
+    clone.__mgTextAlign !== cs.textAlign ||
+    clone.__mgWhiteSpace !== nextWhiteSpace ||
+    clone.__mgWordBreak !== nextWordBreak ||
+    clone.__mgOverflowWrap !== nextOverflowWrap ||
+    clone.__mgWidth !== nextWidth ||
+    clone.__mgMaxWidth !== nextMaxWidth ||
+    clone.__mgPadLeft !== cs.paddingLeft ||
+    clone.__mgPadRight !== cs.paddingRight
+  ) {
+    clone.__mgFontSize = cs.fontSize;
+    clone.__mgFontFamily = cs.fontFamily;
+    clone.__mgLineHeight = cs.lineHeight;
+    clone.__mgLetterSpacing = cs.letterSpacing;
+    clone.__mgTextAlign = cs.textAlign;
+    clone.__mgWhiteSpace = nextWhiteSpace;
+    clone.__mgWordBreak = nextWordBreak;
+    clone.__mgOverflowWrap = nextOverflowWrap;
+    clone.__mgWidth = nextWidth;
+    clone.__mgMaxWidth = nextMaxWidth;
+    clone.__mgPadLeft = cs.paddingLeft;
+    clone.__mgPadRight = cs.paddingRight;
+
+    clone.style.fontSize = cs.fontSize;
+    clone.style.fontFamily = cs.fontFamily;
+    clone.style.lineHeight = cs.lineHeight;
+    clone.style.letterSpacing = cs.letterSpacing;
+    clone.style.textAlign = cs.textAlign;
+    clone.style.whiteSpace = nextWhiteSpace;
+    clone.style.wordBreak = nextWordBreak;
+    clone.style.overflowWrap = nextOverflowWrap;
+    clone.style.width = nextWidth;
+    clone.style.maxWidth = nextMaxWidth;
     clone.style.paddingLeft = cs.paddingLeft;
     clone.style.paddingRight = cs.paddingRight;
-  } else {
-    clone.style.display = 'inline-block';
-    clone.style.width = 'auto';
-    clone.style.whiteSpace = 'nowrap';
   }
   return clone;
 }
@@ -394,12 +472,13 @@ function scoreProbe(p, targetX, targetY) {
   const dyOutside = targetY < p.top ? (p.top - targetY) : (targetY > p.bottom ? (targetY - p.bottom) : 0);
   const dyCenter = Math.abs(targetY - (p.top + p.bottom) * 0.5);
   const dx = Math.abs(targetX - (p.left + p.right) * 0.5);
-  return (dyOutside * 6) * (dyOutside * 6) + (dyCenter * 1.4) * (dyCenter * 1.4) + dx * dx;
+  return (dyOutside * 24) * (dyOutside * 24) + (dyCenter * 1.4) * (dyCenter * 1.4) + dx * dx;
 }
 
 const probeMeasureCache = new Map();
+const PROBE_CACHE_MAX = 200;
 
-function measureBatchInDom(probedTex, probeMeta, liveRoot, liveKatexEl, { displayMode, alignLeft }) {
+function measureBatchInDom(probedTex, probeMeta, liveRoot, liveKatexEl, { displayMode, alignLeft, inlineMaxWidth = null }) {
   const html = katex.renderToString(probedTex, {
     throwOnError: true,
     displayMode,
@@ -407,9 +486,8 @@ function measureBatchInDom(probedTex, probeMeta, liveRoot, liveKatexEl, { displa
   });
 
   const liveKRect = liveKatexEl.getBoundingClientRect();
-  const clone = createProbeClone(liveRoot, displayMode);
+  const clone = getReusableProbeClone(liveRoot, displayMode, inlineMaxWidth);
   clone.innerHTML = html;
-  document.body.appendChild(clone);
 
   try {
     const cloneK = clone.querySelector('.katex-display > .katex, .katex') || clone;
@@ -418,17 +496,17 @@ function measureBatchInDom(probedTex, probeMeta, liveRoot, liveKatexEl, { displa
     const rules = clone.querySelectorAll('.katex-rule, .rule');
 
     for (const ruleEl of rules) {
+      const styleAttr = ruleEl.getAttribute('style') || '';
       const rawStyle =
-        ruleEl.style.borderColor ||
         ruleEl.style.borderTopColor ||
-        ruleEl.style.backgroundColor ||
+        ruleEl.style.borderColor ||
         ruleEl.style.color ||
-        ruleEl.getAttribute('style') ||
-        '';
-      const rgb =
-        parseColorRgb(rawStyle) ||
-        parseColorRgb(getComputedStyle(ruleEl).borderTopColor) ||
-        parseColorRgb(getComputedStyle(ruleEl).color);
+        styleAttr;
+      let rgb = parseColorRgb(rawStyle);
+      if (!rgb) {
+        const ruleCs = getComputedStyle(ruleEl);
+        rgb = parseColorRgb(ruleCs.borderTopColor) || parseColorRgb(ruleCs.color);
+      }
       if (!rgb || rgb.r !== 2) continue;
       const id = ((rgb.g & 0xff) << 8) | (rgb.b & 0xff);
       if (id < 1 || id > probeMeta.length) continue;
@@ -450,21 +528,26 @@ function measureBatchInDom(probedTex, probeMeta, liveRoot, liveKatexEl, { displa
 
     return { probes, liveKRect };
   } finally {
-    clone.remove();
+    clone.textContent = '';
   }
 }
 
 function getCachedProbes(texSource, liveRoot, liveKatexEl, { displayMode, alignLeft }) {
   const cs = getComputedStyle(liveRoot);
-  const widthKey = displayMode ? Math.max(40, liveRoot.clientWidth) : 0;
-  const cacheKey = `${displayMode ? '1' : '0'}:${alignLeft ? '1' : '0'}:${cs.fontSize}:${widthKey}:${texSource}`;
+  const inlineMaxWidth = displayMode ? null : getInlineAvailableWidth(liveRoot);
+  const widthKey = displayMode
+    ? Math.round(Math.max(40, liveRoot.getBoundingClientRect().width || liveRoot.clientWidth))
+    : Math.round(inlineMaxWidth);
+  const cacheKey = `${displayMode ? '1' : '0'}:${alignLeft ? '1' : '0'}:${cs.fontSize}:${cs.lineHeight}:${widthKey}:${texSource}`;
   const cached = probeMeasureCache.get(cacheKey);
   if (cached) {
+    probeMeasureCache.delete(cacheKey);
+    probeMeasureCache.set(cacheKey, cached);
     return { probes: cached, liveKRect: liveKatexEl.getBoundingClientRect() };
   }
   const { probeMeta, probedTex } = buildProbePass(texSource);
-  const { probes, liveKRect } = measureBatchInDom(probedTex, probeMeta, liveRoot, liveKatexEl, { displayMode, alignLeft });
-  if (probeMeasureCache.size > 80) {
+  const { probes, liveKRect } = measureBatchInDom(probedTex, probeMeta, liveRoot, liveKatexEl, { displayMode, alignLeft, inlineMaxWidth });
+  if (probeMeasureCache.size >= PROBE_CACHE_MAX) {
     const oldest = probeMeasureCache.keys().next().value;
     probeMeasureCache.delete(oldest);
   }
@@ -481,8 +564,8 @@ function resolveCoarseToFine(trimmed, clickX, clickY, liveRoot, liveKatexEl, { d
   const targetX = clickX - liveKRect.left;
   const targetY = clickY - liveKRect.top;
 
-  const clone = createProbeClone(liveRoot, displayMode);
-  document.body.appendChild(clone);
+  const inlineMaxWidth = displayMode ? null : getInlineAvailableWidth(liveRoot);
+  const clone = getReusableProbeClone(liveRoot, displayMode, inlineMaxWidth);
 
   const testOffset = offset => {
     try {
@@ -544,7 +627,7 @@ function resolveCoarseToFine(trimmed, clickX, clickY, liveRoot, liveKatexEl, { d
     }
     return bestOffset;
   } finally {
-    clone.remove();
+    clone.textContent = '';
   }
 }
 
@@ -640,8 +723,10 @@ export function resolveLatexOffsetAtPoint(rawMath, clickX, clickY, liveRoot, opt
     return rawMath.length;
   }
 
+  const measureRoot = (validWrap && liveRoot.contains(validWrap)) ? validWrap : liveRoot;
+
   const resolveWithBatch = texSource => {
-    const { probes, liveKRect } = getCachedProbes(texSource, liveRoot, liveKatexEl, { displayMode, alignLeft });
+    const { probes, liveKRect } = getCachedProbes(texSource, measureRoot, liveKatexEl, { displayMode, alignLeft });
     if (!probes.length) return null;
     const targetX = clickX - liveKRect.left;
     const targetY = clickY - liveKRect.top;
@@ -674,7 +759,7 @@ export function resolveLatexOffsetAtPoint(rawMath, clickX, clickY, liveRoot, opt
     }
   }
 
-  const fallbackOff = resolveCoarseToFine(targetTrimmed, clickX, clickY, liveRoot, liveKatexEl, {
+  const fallbackOff = resolveCoarseToFine(targetTrimmed, clickX, clickY, measureRoot, liveKatexEl, {
     displayMode,
     alignLeft,
     injectLatexCaret,
@@ -1216,6 +1301,9 @@ export function clearActiveSlotHighlight(liveRoot) {
   liveRoot.querySelectorAll('.mg-slot-overlay').forEach(el => el.remove());
 }
 
+const slotBoxCache = new Map();
+const SLOT_BOX_CACHE_MAX = 160;
+
 export function applyActiveSlotHighlight(rawMath, cursorOffset, liveRoot, options = {}) {
   if (!liveRoot) return false;
   clearActiveSlotHighlight(liveRoot);
@@ -1240,104 +1328,125 @@ export function applyActiveSlotHighlight(rawMath, cursorOffset, liveRoot, option
   const liveKatexEl = liveRoot.querySelector('.katex-display > .katex, .katex');
   if (!liveKatexEl) return false;
 
-  const rStart = slot.needsBraces ? slot.replaceStart : slot.contentStart;
-  const rEnd = slot.needsBraces ? slot.replaceEnd : slot.contentEnd;
-  const innerRaw = trimmed.slice(slot.contentStart, slot.contentEnd);
-  const localInSlot = clamp(localPos - slot.contentStart, 0, innerRaw.length);
-
-  let innerWithCaret;
-  if (!innerRaw.trim()) {
-    innerWithCaret = SLOT_CARET_TEX;
-  } else if (typeof injectLatexCaret === 'function') {
-    innerWithCaret = injectLatexCaret(innerRaw, localInSlot);
-  } else {
-    innerWithCaret = innerRaw.slice(0, localInSlot) + SLOT_CARET_TEX + innerRaw.slice(localInSlot);
-  }
-
-  const wrapped = slot.needsBraces
-    ? `{\\htmlClass{mg-slot-probe}{${innerWithCaret}}}`
-    : `\\htmlClass{mg-slot-probe}{${innerWithCaret}}`;
-  const slotTex = trimmed.slice(0, rStart) + wrapped + trimmed.slice(rEnd);
-
-  const renderCloneHtml = src => katex.renderToString(src, {
-    throwOnError: true,
-    displayMode,
-    fleqn: alignLeft,
-    trust: ctx => ctx.command === '\\htmlClass',
-  });
-
-  let html = '';
-  try {
-    html = renderCloneHtml(slotTex);
-  } catch {
-    if (typeof buildBalancedCandidate === 'function') {
-      try {
-        html = katex.renderToString(buildBalancedCandidate(slotTex, '#888'), {
-          throwOnError: false,
-          displayMode,
-          fleqn: alignLeft,
-          trust: ctx => ctx.command === '\\htmlClass',
-        });
-      } catch {
-        return false;
-      }
-    } else {
-      return false;
-    }
-  }
-
-  if (!html || !html.includes('mg-slot-probe')) return false;
-
   const liveKRect = liveKatexEl.getBoundingClientRect();
   if (liveKRect.width <= 0 && liveKRect.height <= 0) return false;
 
-  const clone = createProbeClone(liveRoot, displayMode);
-  clone.innerHTML = html;
-  document.body.appendChild(clone);
+  const liveCs = getComputedStyle(liveRoot);
+  const inlineMaxWidth = displayMode ? null : getInlineAvailableWidth(liveRoot);
+  const widthKey = displayMode
+    ? Math.round(Math.max(40, liveRoot.getBoundingClientRect().width || liveRoot.clientWidth))
+    : Math.round(inlineMaxWidth);
+  const slotCacheKey = `${displayMode ? '1' : '0'}:${alignLeft ? '1' : '0'}:${liveCs.fontSize}:${liveCs.lineHeight}:${widthKey}:${trimmed}:${slot.kind}:${slot.contentStart}:${slot.contentEnd}:${slot.isEmpty ? '1' : '0'}`;
 
-  try {
-    const cloneK = clone.querySelector('.katex-display > .katex, .katex') || clone;
-    const probeEl = cloneK.querySelector('.mg-slot-probe');
-    if (!probeEl) return false;
+  let cachedBox = slotBoxCache.get(slotCacheKey);
+  if (cachedBox) {
+    slotBoxCache.delete(slotCacheKey);
+    slotBoxCache.set(slotCacheKey, cachedBox);
+  } else {
+    const rStart = slot.needsBraces ? slot.replaceStart : slot.contentStart;
+    const rEnd = slot.needsBraces ? slot.replaceEnd : slot.contentEnd;
+    const innerRaw = trimmed.slice(slot.contentStart, slot.contentEnd);
+    const localInSlot = clamp(localPos - slot.contentStart, 0, innerRaw.length);
 
-    const cloneKRect = cloneK.getBoundingClientRect();
-    const pRect = probeEl.getBoundingClientRect();
-    if (pRect.width <= 0 && pRect.height <= 0) return false;
+    let innerWithCaret;
+    if (!innerRaw.trim()) {
+      innerWithCaret = SLOT_CARET_TEX;
+    } else if (typeof injectLatexCaret === 'function') {
+      innerWithCaret = injectLatexCaret(innerRaw, localInSlot);
+    } else {
+      innerWithCaret = innerRaw.slice(0, localInSlot) + SLOT_CARET_TEX + innerRaw.slice(localInSlot);
+    }
 
-    const scaleX = cloneKRect.width > 0 ? liveKRect.width / cloneKRect.width : 1;
-    const scaleY = cloneKRect.height > 0 ? liveKRect.height / cloneKRect.height : 1;
+    const wrapped = slot.needsBraces
+      ? `{\\htmlClass{mg-slot-probe}{${innerWithCaret}}}`
+      : `\\htmlClass{mg-slot-probe}{${innerWithCaret}}`;
+    const slotTex = trimmed.slice(0, rStart) + wrapped + trimmed.slice(rEnd);
 
-    const relLeft = (pRect.left - cloneKRect.left) * scaleX;
-    const relTop = (pRect.top - cloneKRect.top) * scaleY;
-    const relW = pRect.width * scaleX;
-    const relH = pRect.height * scaleY;
+    const renderCloneHtml = src => katex.renderToString(src, {
+      throwOnError: true,
+      displayMode,
+      fleqn: alignLeft,
+      trust: ctx => ctx.command === '\\htmlClass',
+    });
 
-    const padX = slot.isEmpty ? 5 : 3;
-    const padY = 2;
-    const boxW = Math.max(slot.isEmpty ? 14 : 11, relW + padX * 2);
-    const boxH = Math.max(12, relH + padY * 2);
-    const boxLeft = slot.isEmpty
-      ? (relLeft + relW * 0.5 - boxW * 0.5)
-      : (relLeft - padX);
-    const boxTop = relTop - padY;
+    let html = '';
+    try {
+      html = renderCloneHtml(slotTex);
+    } catch {
+      if (typeof buildBalancedCandidate === 'function') {
+        try {
+          html = katex.renderToString(buildBalancedCandidate(slotTex, '#888'), {
+            throwOnError: false,
+            displayMode,
+            fleqn: alignLeft,
+            trust: ctx => ctx.command === '\\htmlClass',
+          });
+        } catch {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    }
 
-    liveKatexEl.classList.add('mg-katex-sel-host');
-    const overlay = document.createElement('span');
-    overlay.className = 'mg-slot-overlay';
-    overlay.setAttribute('aria-hidden', 'true');
-    overlay.dataset.slotKind = slot.kind;
+    if (!html || !html.includes('mg-slot-probe')) return false;
 
-    const box = document.createElement('span');
-    box.className = 'mg-slot-box';
-    box.style.left = boxLeft.toFixed(1) + 'px';
-    box.style.top = boxTop.toFixed(1) + 'px';
-    box.style.width = boxW.toFixed(1) + 'px';
-    box.style.height = boxH.toFixed(1) + 'px';
-    overlay.appendChild(box);
-    liveKatexEl.prepend(overlay);
-    return true;
-  } finally {
-    clone.remove();
+    const clone = getReusableProbeClone(liveRoot, displayMode, inlineMaxWidth);
+    clone.innerHTML = html;
+
+    try {
+      const cloneK = clone.querySelector('.katex-display > .katex, .katex') || clone;
+      const probeEl = cloneK.querySelector('.mg-slot-probe');
+      if (!probeEl) return false;
+
+      const cloneKRect = cloneK.getBoundingClientRect();
+      const pRect = probeEl.getBoundingClientRect();
+      if (pRect.width <= 0 && pRect.height <= 0) return false;
+
+      const rawScaleX = cloneKRect.width > 0 ? liveKRect.width / cloneKRect.width : 1;
+      const rawScaleY = cloneKRect.height > 0 ? liveKRect.height / cloneKRect.height : 1;
+      const scaleX = clamp(rawScaleX, 0.9, 1.1);
+      const scaleY = clamp(rawScaleY, 0.9, 1.1);
+
+      const relLeft = (pRect.left - cloneKRect.left) * scaleX;
+      const relTop = (pRect.top - cloneKRect.top) * scaleY;
+      const relW = pRect.width * scaleX;
+      const relH = pRect.height * scaleY;
+
+      const padX = slot.isEmpty ? 5 : 3;
+      const padY = 2;
+      const boxW = Math.max(slot.isEmpty ? 14 : 11, relW + padX * 2);
+      const boxH = Math.max(12, relH + padY * 2);
+      const boxLeft = slot.isEmpty
+        ? (relLeft + relW * 0.5 - boxW * 0.5)
+        : (relLeft - padX);
+      const boxTop = relTop - padY;
+
+      cachedBox = { boxLeft, boxTop, boxW, boxH };
+      if (slotBoxCache.size >= SLOT_BOX_CACHE_MAX) {
+        const oldest = slotBoxCache.keys().next().value;
+        slotBoxCache.delete(oldest);
+      }
+      slotBoxCache.set(slotCacheKey, cachedBox);
+    } finally {
+      clone.textContent = '';
+    }
   }
+
+  liveKatexEl.classList.add('mg-katex-sel-host');
+  const overlay = document.createElement('span');
+  overlay.className = 'mg-slot-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.dataset.slotKind = slot.kind;
+
+  const box = document.createElement('span');
+  box.className = 'mg-slot-box';
+  box.style.left = cachedBox.boxLeft.toFixed(1) + 'px';
+  box.style.top = cachedBox.boxTop.toFixed(1) + 'px';
+  box.style.width = cachedBox.boxW.toFixed(1) + 'px';
+  box.style.height = cachedBox.boxH.toFixed(1) + 'px';
+  overlay.appendChild(box);
+  liveKatexEl.prepend(overlay);
+  return true;
 }
 

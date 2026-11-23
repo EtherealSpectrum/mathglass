@@ -166,14 +166,14 @@ function mountStandaloneHeaderIfNeeded() {
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>
         </button>
         <div class="transparency-group">
-            <button class="preview-toggle" id="transparency-toggle" type="button" aria-label="Διαφάνεια" title="Διαφάνεια">
+            <button class="preview-toggle active" id="transparency-toggle" type="button" aria-label="Αδιαφάνεια" title="Αδιαφάνεια (Alt+O)">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none" opacity="0.5"></path></svg>
             </button>
             <div class="transparency-slider-wrap">
                 <span class="transparency-magnet-tick" aria-hidden="true"></span>
-                <input type="range" id="transparency-slider" min="0" max="100" step="5" value="0" title="Βαθμός Διαφάνειας (%) — βήμα 5%, μαγνήτης στο 90%">
+                <input type="range" id="transparency-slider" min="0" max="100" step="5" value="35" title="Βαθμός Διαφάνειας: 35% (μαγνήτης στο 90%)">
             </div>
-            <span class="transparency-val" id="transparency-val">0%</span>
+            <span class="transparency-val" id="transparency-val">35%</span>
         </div>
         ${isDesktop ? '' : '<button class="preview-toggle active" id="blur-toggle" type="button" aria-label="Θόλωμα (Τζαμαρία)" title="Θόλωμα (Τζαμαρία) ON/OFF">Blur</button>'}
         <button class="preview-toggle" id="preview-toggle" type="button" aria-label="Απόκρυψη προεπισκόπησης" title="Απόκρυψη προεπισκόπησης">

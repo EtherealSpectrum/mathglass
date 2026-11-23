@@ -20,6 +20,12 @@ let lastSelStart = -1;
 let lastSelEnd = -1;
 let lastWasSelection = false;
 
+const KATEX_CACHE_MAX = 180;
+const katexPreviewCache = new Map();
+let prefixMeasureEl = null;
+let textareaMirrorEl = null;
+let textareaMirrorKey = '';
+
 function escapeHtml(str) {
     return String(str)
         .replace(/&/g, '&amp;')
@@ -387,10 +393,10 @@ export function renderPartialLatexHtml(src, err, alignLeft, displayMode = true, 
     if (bestHtml && bestPos > 0) {
         const tail = trimmed.slice(bestPos);
         if (!tail) return bestHtml;
-        return `<div class="katex-partial-combo" style="display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:${alignLeft ? 'flex-start' : 'center'};gap:6px;max-width:100%;"><span class="katex-partial-valid">${bestHtml}</span><span class="katex-error-tail" style="color:${errorColor};font-family:var(--mono);font-size:0.85em;background:rgba(239,68,68,0.12);border-bottom:2px wavy ${errorColor};padding:1px 5px;border-radius:4px;white-space:pre-wrap;word-break:break-word;">${escapeHtml(tail)}</span></div>`;
+        return `<div class="katex-partial-combo${alignLeft ? ' is-align-left' : ''}"><span class="katex-partial-valid">${bestHtml}</span><span class="katex-error-tail">${escapeHtml(tail)}</span></div>`;
     }
 
-    return `<span class="katex-error-tail" style="color:${errorColor};font-family:var(--mono);font-size:0.9em;background:rgba(239,68,68,0.12);border-bottom:2px wavy ${errorColor};padding:2px 6px;border-radius:4px;white-space:pre-wrap;word-break:break-word;">${escapeHtml(trimmed)}</span>`;
+    return `<span class="katex-error-tail is-solo">${escapeHtml(trimmed)}</span>`;
 }
 
 export function renderLatexWithCaret(rawMath, cursorOffset, alignLeft, displayMode = true, isLight = false) {
@@ -399,20 +405,33 @@ export function renderLatexWithCaret(rawMath, cursorOffset, alignLeft, displayMo
     if (!trimmed) return { html: '', ok: true, error: null };
 
     if (typeof cursorOffset !== 'number') {
+        const cacheKey = `${displayMode ? 1 : 0}:${alignLeft ? 1 : 0}:${isLight ? 1 : 0}:${trimmed}`;
+        if (katexPreviewCache.has(cacheKey)) {
+            const hit = katexPreviewCache.get(cacheKey);
+            katexPreviewCache.delete(cacheKey);
+            katexPreviewCache.set(cacheKey, hit);
+            return hit;
+        }
+        let result;
         try {
             const html = katex.renderToString(trimmed, {
                 throwOnError: true,
                 displayMode,
                 fleqn: alignLeft,
             });
-            return { html, ok: true, error: null };
+            result = { html, ok: true, error: null };
         } catch (err) {
-            return {
+            result = {
                 html: renderPartialLatexHtml(rawMath, err, alignLeft, displayMode, isLight, null),
                 ok: false,
                 error: err,
             };
         }
+        if (katexPreviewCache.size >= KATEX_CACHE_MAX) {
+            katexPreviewCache.delete(katexPreviewCache.keys().next().value);
+        }
+        katexPreviewCache.set(cacheKey, result);
+        return result;
     }
 
     const localPos = clamp(cursorOffset - leadLen, 0, trimmed.length);
@@ -468,7 +487,8 @@ export function render(shouldScroll = false) {
             state.previewWrap.classList.remove('error');
             state.preview.innerHTML = '<span class="placeholder">Η προεπισκόπηση θα εμφανιστεί εδώ…</span>';
         } else {
-            const res = renderLatexWithCaret(raw, sel.active ? null : cursorPos, state.alignLeft, true, isLight);
+            const showCaret = !sel.active && state.previewCaretEnabled !== false;
+            const res = renderLatexWithCaret(raw, showCaret ? cursorPos : null, state.alignLeft, true, isLight);
             if (res.ok) {
                 state.previewWrap.classList.remove('error');
                 state.preview.innerHTML = res.html;
@@ -489,10 +509,20 @@ export function render(shouldScroll = false) {
                 const errDiv = document.createElement('div');
                 errDiv.className = 'preview-error-msg';
                 errDiv.textContent = translateLatexErrorToGreek(res.error);
+                if (typeof res.error?.position === 'number') {
+                    const leadLen = raw.length - raw.trimStart().length;
+                    errDiv.dataset.errPos = String(clamp(leadLen + res.error.position, 0, raw.length));
+                    errDiv.classList.add('is-clickable');
+                    errDiv.title = 'Κλικ για μετάβαση στο σημείο σφάλματος';
+                    const hint = document.createElement('span');
+                    hint.className = 'preview-error-jump';
+                    hint.textContent = ' (κλικ για μετάβαση)';
+                    errDiv.appendChild(hint);
+                }
                 state.preview.appendChild(errDiv);
             }
+            const targetRoot = state.preview.querySelector('.preview-partial-math') || state.preview;
             if (sel.active) {
-                const targetRoot = state.preview.querySelector('.preview-partial-math') || state.preview;
                 clearActiveSlotHighlight(targetRoot);
                 applyLatexSelectionHighlight(raw, sel.start, sel.end, targetRoot, {
                     displayMode: true,
@@ -500,14 +530,19 @@ export function render(shouldScroll = false) {
                     buildBalancedCandidate,
                 });
             } else {
-                markCaretElement(state.preview);
-                const targetRoot = state.preview.querySelector('.preview-partial-math') || state.preview;
-                applyActiveSlotHighlight(raw, cursorPos, targetRoot, {
-                    displayMode: true,
-                    alignLeft: state.alignLeft,
-                    buildBalancedCandidate,
-                    injectLatexCaret,
-                });
+                if (state.previewCaretEnabled !== false) {
+                    markCaretElement(state.preview);
+                }
+                if (state.slotHintsEnabled !== false) {
+                    applyActiveSlotHighlight(raw, cursorPos, targetRoot, {
+                        displayMode: true,
+                        alignLeft: state.alignLeft,
+                        buildBalancedCandidate,
+                        injectLatexCaret,
+                    });
+                } else {
+                    clearActiveSlotHighlight(targetRoot);
+                }
             }
         }
         if (!follow) {
@@ -531,18 +566,21 @@ function measurePrefixWidth(beforeRow) {
     if (!cleaned) return 0;
 
     const candidate = buildBalancedCandidate(cleaned, '#888');
-    const t = document.createElement('div');
-    t.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;left:-9999px;top:0;pointer-events:none;';
-    t.style.fontSize = getComputedStyle(state.preview).fontSize;
-    t.style.fontFamily = getComputedStyle(state.preview).fontFamily;
+    if (!prefixMeasureEl) {
+        prefixMeasureEl = document.createElement('div');
+        prefixMeasureEl.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;left:-9999px;top:0;pointer-events:none;contain:layout style;';
+    }
+    if (!prefixMeasureEl.isConnected) document.body.appendChild(prefixMeasureEl);
+    const pvCs = getComputedStyle(state.preview);
+    prefixMeasureEl.style.fontSize = pvCs.fontSize;
+    prefixMeasureEl.style.fontFamily = pvCs.fontFamily;
 
     let w = 0;
     try {
-        katex.render(candidate, t, { throwOnError: false, displayMode: true });
-        document.body.appendChild(t);
-        w = t.getBoundingClientRect().width;
+        katex.render(candidate, prefixMeasureEl, { throwOnError: false, displayMode: true });
+        w = prefixMeasureEl.getBoundingClientRect().width;
     } catch { }
-    t.remove();
+    prefixMeasureEl.textContent = '';
     return w;
 }
 
@@ -640,19 +678,40 @@ export function syncCursor() {
 
     if (!srcChanged && !selChanged && pos === lastCursorPos) return;
 
-    if (!srcChanged && sel.active && lastWasSelection && state.preview && state.ta.value.trim()) {
-        lastCursorPos = pos;
-        lastSelStart = sel.start;
-        lastSelEnd = sel.end;
+    if (!srcChanged && state.preview && state.ta.value.trim()) {
         const targetRoot = state.preview.querySelector('.preview-partial-math') || state.preview;
-        clearActiveSlotHighlight(targetRoot);
-        clearLatexSelectionHighlight(targetRoot);
-        applyLatexSelectionHighlight(state.ta.value, sel.start, sel.end, targetRoot, {
-            displayMode: true,
-            alignLeft: state.alignLeft,
-            buildBalancedCandidate,
-        });
-        return;
+        if (sel.active && (lastWasSelection || state.previewCaretEnabled === false)) {
+            lastCursorPos = pos;
+            lastSelStart = sel.start;
+            lastSelEnd = sel.end;
+            lastWasSelection = true;
+            clearActiveSlotHighlight(targetRoot);
+            clearLatexSelectionHighlight(targetRoot);
+            applyLatexSelectionHighlight(state.ta.value, sel.start, sel.end, targetRoot, {
+                displayMode: true,
+                alignLeft: state.alignLeft,
+                buildBalancedCandidate,
+            });
+            return;
+        }
+        if (!sel.active && state.previewCaretEnabled === false) {
+            lastCursorPos = pos;
+            lastSelStart = sel.start;
+            lastSelEnd = sel.end;
+            lastWasSelection = false;
+            clearLatexSelectionHighlight(targetRoot);
+            if (state.slotHintsEnabled !== false) {
+                applyActiveSlotHighlight(state.ta.value, pos, targetRoot, {
+                    displayMode: true,
+                    alignLeft: state.alignLeft,
+                    buildBalancedCandidate,
+                    injectLatexCaret,
+                });
+            } else {
+                clearActiveSlotHighlight(targetRoot);
+            }
+            return;
+        }
     }
 
     render(false);
@@ -677,16 +736,24 @@ function measureMinHeight() {
 function ensureTextareaOffsetVisible(ta, pos) {
     if (!ta) return;
     const cs = getComputedStyle(ta);
-    const mirror = document.createElement('div');
-    mirror.style.cssText = 'position:fixed;left:-99999px;top:0;visibility:hidden;pointer-events:none;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;box-sizing:border-box;overflow:hidden;';
-    mirror.style.width = ta.clientWidth + 'px';
-    mirror.style.fontFamily = cs.fontFamily;
-    mirror.style.fontSize = cs.fontSize;
-    mirror.style.fontWeight = cs.fontWeight;
-    mirror.style.lineHeight = cs.lineHeight;
-    mirror.style.letterSpacing = cs.letterSpacing;
-    mirror.style.padding = cs.padding;
-    mirror.style.border = cs.border;
+    if (!textareaMirrorEl) {
+        textareaMirrorEl = document.createElement('div');
+        textareaMirrorEl.style.cssText = 'position:fixed;left:-99999px;top:0;visibility:hidden;pointer-events:none;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;box-sizing:border-box;overflow:hidden;contain:layout style;';
+    }
+    if (!textareaMirrorEl.isConnected) document.body.appendChild(textareaMirrorEl);
+
+    const styleKey = `${ta.clientWidth}|${cs.fontFamily}|${cs.fontSize}|${cs.fontWeight}|${cs.lineHeight}|${cs.letterSpacing}|${cs.padding}|${cs.border}`;
+    if (textareaMirrorKey !== styleKey) {
+        textareaMirrorKey = styleKey;
+        textareaMirrorEl.style.width = ta.clientWidth + 'px';
+        textareaMirrorEl.style.fontFamily = cs.fontFamily;
+        textareaMirrorEl.style.fontSize = cs.fontSize;
+        textareaMirrorEl.style.fontWeight = cs.fontWeight;
+        textareaMirrorEl.style.lineHeight = cs.lineHeight;
+        textareaMirrorEl.style.letterSpacing = cs.letterSpacing;
+        textareaMirrorEl.style.padding = cs.padding;
+        textareaMirrorEl.style.border = cs.border;
+    }
 
     const val = (ta.value || '').replace(/\r\n?/g, '\n');
     const p = clamp(pos, 0, val.length);
@@ -694,10 +761,9 @@ function ensureTextareaOffsetVisible(ta, pos) {
     const marker = document.createElement('span');
     marker.textContent = '\u200b';
     const after = document.createTextNode(val.slice(p) || ' ');
-    mirror.append(before, marker, after);
-    document.body.appendChild(mirror);
+    textareaMirrorEl.replaceChildren(before, marker, after);
     try {
-        const mRect = mirror.getBoundingClientRect();
+        const mRect = textareaMirrorEl.getBoundingClientRect();
         const r = marker.getBoundingClientRect();
         const relTop = r.top - mRect.top;
         const padTop = parseFloat(cs.paddingTop) || 8;
@@ -715,7 +781,7 @@ function ensureTextareaOffsetVisible(ta, pos) {
             hl.scrollLeft = ta.scrollLeft;
         }
     } finally {
-        mirror.remove();
+        textareaMirrorEl.textContent = '';
     }
 }
 
@@ -726,6 +792,19 @@ export function init(ac) {
 
     on(state.previewWrap, 'click', e => {
         if (!state.ta || !state.preview) return;
+        const errJumpEl = e.target.closest('.preview-error-msg[data-err-pos]');
+        if (errJumpEl) {
+            const rawVal = state.ta.value || '';
+            const jumpPos = clamp(parseInt(errJumpEl.dataset.errPos, 10) || 0, 0, rawVal.length);
+            try { state.ta.focus({ preventScroll: true }); } catch { state.ta.focus(); }
+            state.ta.setSelectionRange(jumpPos, jumpPos);
+            ensureTextareaOffsetVisible(state.ta, jumpPos);
+            lastCursorPos = -1;
+            lastSelStart = -1;
+            lastSelEnd = -1;
+            syncCursor();
+            return;
+        }
         if (e.target.closest('.preview-controls, .preview-error-msg, .mg-nav-led, button, a')) return;
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed && sel.toString().length > 0) return;

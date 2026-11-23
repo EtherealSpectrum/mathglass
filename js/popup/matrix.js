@@ -2,6 +2,7 @@ import { $, on } from '../core/dom.js';
 import { state } from './settings.js';
 
 let savedCols = 3;
+let previewsRendered = false;
 const modal = () => $('#matrix-modal');
 
 function colsVisibility(type) {
@@ -14,7 +15,16 @@ function colsVisibility(type) {
   c.parentElement.style.pointerEvents = aligned ? 'none' : '';
 }
 
+function ensureMatrixPreviewsRendered() {
+  if (previewsRendered) return;
+  previewsRendered = true;
+  document.querySelectorAll('.matrix-preview[data-latex]').forEach(el => {
+    try { katex.render(el.getAttribute('data-latex'), el, { throwOnError: false }); } catch { }
+  });
+}
+
 export function open(type) {
+  ensureMatrixPreviewsRendered();
   const r = document.querySelector(`input[name="matrix-type"][value="${type}"]`);
   if (r) r.checked = true;
   $('#matrix-rows').value = 3;
@@ -32,13 +42,10 @@ export function init(ac) {
   on(modal(), 'click', e => { if (e.target === modal()) close(); }, false, sig);
   document.querySelectorAll('input[name="matrix-type"]').forEach(r =>
     on(r, 'change', () => colsVisibility(r.value), false, sig));
-  document.querySelectorAll('.matrix-preview[data-latex]').forEach(el => {
-    try { katex.render(el.getAttribute('data-latex'), el, { throwOnError: false }); } catch {}
-  });
   on($('#apply-matrix'), 'click', () => {
     const type = document.querySelector('input[name="matrix-type"]:checked')?.value || 'matrix';
-    const rows = parseInt($('#matrix-rows').value) || 3;
-    const cols = parseInt($('#matrix-cols').value) || 3;
+    const rows = Math.max(1, Math.min(10, parseInt($('#matrix-rows').value, 10) || 3));
+    const cols = Math.max(1, Math.min(10, parseInt($('#matrix-cols').value, 10) || 3));
     let latex;
     if (type === 'aligned') {
       latex = '\\begin{aligned}\n' + Array.from({ length: rows }, (_, r) => '&= ' + (r < rows - 1 ? '\\\\\n' : '\n')).join('') + '\\end{aligned}';

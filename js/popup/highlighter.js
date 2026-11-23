@@ -103,8 +103,11 @@ function highlightBbcodeText(text) {
   }).join('');
 }
 
-function syncScrollbarPadding(ta, pre) {
+function syncScrollbarPadding(ta, pre, entry = null) {
   if (!ta || !pre) return;
+  const key = `${ta.offsetWidth}:${ta.clientWidth}:${pre.offsetWidth}:${pre.clientWidth}:${ta.style.fontSize}`;
+  if (entry && entry.sbKey === key) return;
+  if (entry) entry.sbKey = key;
   const taCs = getComputedStyle(ta);
   const preCs = getComputedStyle(pre);
   const taBorderW = (parseFloat(taCs.borderLeftWidth) || 0) + (parseFloat(taCs.borderRightWidth) || 0);
@@ -116,10 +119,16 @@ function syncScrollbarPadding(ta, pre) {
   pre.style.paddingRight = deltaSb !== 0 ? `${Math.max(0, basePr + deltaSb)}px` : '';
 }
 
-function renderHighlight(ta, pre, mode) {
+function renderHighlight(ta, pre, mode, entry = null) {
   if (!ta || !pre) return;
+  if (!syntaxEnabled) {
+    if (!entry || entry.lastHtml !== '') {
+      pre.innerHTML = '';
+      if (entry) entry.lastHtml = '';
+    }
+    return;
+  }
   const val = (ta.value || '').replace(/\r\n?/g, '\n');
-  if (!syntaxEnabled) { pre.innerHTML = ''; return; }
   let html = '';
   if (mode === 'latex') {
     html = tokenizeLatex(val);
@@ -136,8 +145,12 @@ function renderHighlight(ta, pre, mode) {
     }).join('');
   }
   if (html.startsWith('\n')) html = '<span class="sh-tok" data-t=""></span>' + html;
-  pre.innerHTML = html + (val.endsWith('\n') ? ' ' : '');
-  syncScrollbarPadding(ta, pre);
+  const fullHtml = html + (val.endsWith('\n') ? ' ' : '');
+  if (!entry || entry.lastHtml !== fullHtml) {
+    pre.innerHTML = fullHtml;
+    if (entry) entry.lastHtml = fullHtml;
+  }
+  syncScrollbarPadding(ta, pre, entry);
   pre.scrollTop = ta.scrollTop;
   pre.scrollLeft = ta.scrollLeft;
 }
@@ -146,19 +159,21 @@ function attachEditor(taId, preId, mode, sig) {
   const ta = $(taId), pre = $(preId);
   if (!ta || !pre) return;
   pre.style.fontSize = ta.style.fontSize || '';
-  editors.push({ ta, pre, mode });
-  on(ta, 'input', () => renderHighlight(ta, pre, mode), false, sig);
+  const entry = { ta, pre, mode, lastHtml: null, sbKey: '' };
+  editors.push(entry);
+  on(ta, 'input', () => renderHighlight(ta, pre, mode, entry), false, sig);
   on(ta, 'scroll', () => { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; }, { passive: true }, sig);
   if (typeof ResizeObserver !== 'undefined') {
     const ro = new ResizeObserver(() => {
-      syncScrollbarPadding(ta, pre);
+      entry.sbKey = '';
+      syncScrollbarPadding(ta, pre, entry);
       pre.scrollTop = ta.scrollTop;
       pre.scrollLeft = ta.scrollLeft;
     });
     ro.observe(ta);
     sig.addEventListener('abort', () => ro.disconnect(), { once: true });
   }
-  renderHighlight(ta, pre, mode);
+  renderHighlight(ta, pre, mode, entry);
 }
 
 export function refreshAll() {
@@ -169,13 +184,17 @@ export function refreshAll() {
     btn.setAttribute('aria-pressed', String(syntaxEnabled));
     btn.textContent = syntaxEnabled ? 'Χρωματισμός Σύνταξης: ΕΝΕΡΓΟΣ' : 'Χρωματισμός Σύνταξης: ΑΝΕΝΕΡΓΟΣ';
   }
-  for (const ed of editors) renderHighlight(ed.ta, ed.pre, ed.mode);
+  for (const ed of editors) {
+    ed.sbKey = '';
+    renderHighlight(ed.ta, ed.pre, ed.mode, ed);
+  }
 }
 
 export function syncFontFromTextarea(taId) {
   const entry = editors.find(e => e.ta.id === taId);
   if (!entry) return;
   entry.pre.style.fontSize = entry.ta.style.fontSize || '';
+  entry.sbKey = '';
   refreshAll();
 }
 

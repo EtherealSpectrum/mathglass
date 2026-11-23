@@ -215,15 +215,26 @@
     (document.head || document.documentElement).appendChild(st);
   }
 
-  let geo = { left: 80, top: 80, width: 580, height: 660 };
-  let theme = 'dark', transparency = 0, blurEnabled = true, toolbarHidden = false, previewHidden = false, headerBtnScale = 1;
-  let minimized = false, fullscreen = false, readerOpenedFs = false, preFsGeo = null, savedHeight = 660, dynamicMinH = 300;
+  let theme = 'dark', transparency = 35, blurEnabled = true, toolbarHidden = false, previewHidden = false, headerBtnScale = 1;
+  let minimized = false, fullscreen = false, readerOpenedFs = false, preFsGeo = null, dynamicMinH = 300;
 
   const wrapper = document.createElement('div');
   wrapper.id = PANEL_ID;
   wrapper.setAttribute('data-theme', theme);
   const handle = document.createElement('div');
   const getHandleH = () => Math.max(HANDLE_H, handle.offsetHeight || Math.round(HANDLE_H * headerBtnScale));
+  const getDefaultGeo = () => {
+    const cw = document.documentElement.clientWidth || window.innerWidth || 1280;
+    const ch = document.documentElement.clientHeight || window.innerHeight || 800;
+    const hh = getHandleH();
+    const width = Math.max(Math.min(MIN_W, cw - 16), Math.min(820, Math.round(cw * 0.64), cw - 24));
+    const height = Math.max(Math.min(460, ch - hh - 16), Math.min(680, Math.round(ch * 0.84), ch - hh - 24));
+    const left = Math.max(8, Math.round((cw - width) / 2));
+    const top = Math.max(8, Math.round(Math.min(56, Math.max(8, (ch - height) / 2))));
+    return { left, top, width, height };
+  };
+  let geo = getDefaultGeo();
+  let savedHeight = geo.height;
   const clampGeo = g => {
     const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
     const hh = getHandleH();
@@ -285,12 +296,12 @@
   sliderTransp.min = '0';
   sliderTransp.max = '100';
   sliderTransp.step = '5';
-  sliderTransp.value = '0';
+  sliderTransp.value = '35';
   sliderTransp.title = 'Βαθμός Διαφάνειας (%) — βήμα 5%, μαγνήτης στο 90% (Alt+O εναλλαγή)';
   sliderWrap.append(sliderTick, sliderTransp);
   const transpVal = document.createElement('span');
   transpVal.className = 'lfp-transp-val';
-  transpVal.textContent = '0%';
+  transpVal.textContent = '35%';
 
   const btnBlur = document.createElement('button');
   btnBlur.type = 'button';
@@ -372,9 +383,9 @@
     const inPanel = wrapper.contains(ae) || ae === iframe;
     const onBarePage = !minimized && (!ae || ae === document.body || ae === document.documentElement);
     const isMod = e.ctrlKey || e.metaKey;
-    const isPanelAlt = e.altKey && !isMod && !e.shiftKey && /^(Key[NCTOBKPSRMELFXGWIHAVQUYZJ]|Digit[0-8]|Equal|Minus|NumpadAdd|NumpadSubtract|Numpad[0-8])$/.test(e.code);
-    const isPanelAltShift = e.altKey && !isMod && e.shiftKey && /^(Key[HSIG]|Backspace|Equal|Minus|NumpadAdd|NumpadSubtract|Digit0|Numpad0)$/.test(e.code);
-    const isPanelCtrl = inPanel && isMod && !e.altKey && (e.key === 'Enter' || /^(Key[BIKU]|Backslash)$/.test(e.code) || (e.shiftKey && /^(KeyX|Digit[78])$/.test(e.code)));
+    const isPanelAlt = e.altKey && !isMod && !e.shiftKey && /^(Key[NCTOBKPSRMELFXGWIHAVQUYZJ]|Digit[0-9]|Slash|Equal|Minus|NumpadAdd|NumpadSubtract|Numpad[0-9])$/.test(e.code);
+    const isPanelAltShift = e.altKey && !isMod && e.shiftKey && /^(Key[BCHSIG]|Backspace|Equal|Minus|NumpadAdd|NumpadSubtract|Digit0|Numpad0)$/.test(e.code);
+    const isPanelCtrl = inPanel && isMod && !e.altKey && (e.key === 'Enter' || /^(Key[BIKU]|Backslash)$/.test(e.code) || (e.shiftKey && /^(Key[FX]|Digit[78])$/.test(e.code)));
     const isPanelEsc = inPanel && e.key === 'Escape';
     const isPanelF11 = inPanel && !isMod && !e.altKey && !e.shiftKey && e.code === 'F11';
     if (isPanelF11) {
@@ -489,11 +500,14 @@
     syncPanelAnchors();
   }
 
+  applyLook();
+  syncBarStates();
+
   try {
     storageLocal?.get([K_GEOM, K_THEME, K_TRANSP, K_BLUR, K_TB_HIDDEN, K_PV_HIDDEN, K_HDR_SCALE, K_HDR_AUTO], res => {
       if (res[K_GEOM]) Object.assign(geo, res[K_GEOM]);
       theme = res[K_THEME] === 'light' ? 'light' : 'dark';
-      transparency = typeof res[K_TRANSP] === 'number' ? Math.max(0, Math.min(100, res[K_TRANSP])) : 0;
+      transparency = typeof res[K_TRANSP] === 'number' ? Math.max(0, Math.min(100, res[K_TRANSP])) : 35;
       blurEnabled = res[K_BLUR] === false ? false : true;
       toolbarHidden = Boolean(res[K_TB_HIDDEN]);
       previewHidden = Boolean(res[K_PV_HIDDEN]);
@@ -513,7 +527,12 @@
         if (area !== 'local') return;
         let changedLook = false;
         if (changes[K_THEME]) { theme = changes[K_THEME].newValue === 'light' ? 'light' : 'dark'; changedLook = true; }
-        if (changes[K_TRANSP]) { transparency = Math.max(0, Math.min(100, Number(changes[K_TRANSP].newValue) || 0)); changedLook = true; }
+        if (changes[K_TRANSP]) {
+          transparency = typeof changes[K_TRANSP].newValue === 'number'
+            ? Math.max(0, Math.min(100, changes[K_TRANSP].newValue))
+            : 35;
+          changedLook = true;
+        }
         if (changes[K_BLUR]) { blurEnabled = changes[K_BLUR].newValue === false ? false : true; changedLook = true; }
         if (changes[K_TB_HIDDEN]) toolbarHidden = Boolean(changes[K_TB_HIDDEN].newValue);
         if (changes[K_PV_HIDDEN]) previewHidden = Boolean(changes[K_PV_HIDDEN].newValue);
@@ -568,7 +587,7 @@
     if (persistLevel) { try { storageLocal?.set({ [K_TRANSP]: transparency }); } catch { } }
   };
 
-  btnTransp.addEventListener('click', e => { e.stopPropagation(); applyTransp(transparency > 0 ? 0 : 45, true); requestAnimationFrame(focusEditorInPanel); });
+  btnTransp.addEventListener('click', e => { e.stopPropagation(); applyTransp(transparency > 0 ? 0 : 35, true); requestAnimationFrame(focusEditorInPanel); });
   sliderTransp.addEventListener('input', e => {
     e.stopPropagation();
     const snapped = snapTransparency(sliderTransp.value);
@@ -765,7 +784,7 @@
       wrapper.style.borderRadius = '0'; resizeHandle.style.display = 'none'; handle.style.cursor = 'default';
       setIcon(btnFull, ICON.exit, 'Έξοδος από Πλήρη Οθόνη');
     } else {
-      const t = preFsGeo || { left: 80, top: 80, width: 580, height: 660 };
+      const t = preFsGeo || getDefaultGeo();
       const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
       const hh = getHandleH();
       const w = Math.min(t.width, Math.max(MIN_W, cw - 16));

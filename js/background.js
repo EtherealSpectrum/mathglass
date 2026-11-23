@@ -1,4 +1,4 @@
-// Background v3.3.0 — αξιόπιστο toggle + proxy για insert/tracker
+// Background v3.4.0 — αξιόπιστο toggle + proxy για insert/tracker
 (() => {
   'use strict';
   const KEYS = { draft: 'latex_editor_text', geometry: 'latex_panel_geometry' };

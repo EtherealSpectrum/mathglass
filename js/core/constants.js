@@ -37,6 +37,10 @@ export const KEYS = {
   intuitiveNav:            'latex_intuitive_nav_enabled',
   autoBraces:              'latex_auto_braces_enabled',
   previewFollow:           'latex_preview_follow_enabled',
+  previewCaret:            'latex_preview_caret_enabled',
+  slotHints:               'latex_slot_hints_enabled',
+  equationHistory:         'latex_equation_history',
+  favoriteEquations:       'latex_favorite_equations',
 };
 
 export const MSG = {
@@ -59,13 +63,20 @@ export const LIMITS = {
   notepadToolbar: { min: 0.8, max: 2.0, step: 0.1 },
   headerBtn:      { min: 0.8, max: 2.0, step: 0.1 },
   recentMax: 12,
+  equationHistoryMax: 15,
   previewMaxRatio: 0.65,
 };
 
 export const DEFAULTS = {
   theme: 'dark',
-  transparency: 0,
+  transparency: 35,
   blurEnabled: true,
+  toolbarHidden: false,
+  notepadToolbarHidden: false,
+  previewHidden: false,
+  settingsCollapsed: false,
+  alignLeft: false,
+  syntaxHighlight: true,
   texWrap: true,
   textstyle: true,
   displaystyle: true,
@@ -73,6 +84,8 @@ export const DEFAULTS = {
   intuitiveNav: true,
   autoBraces: true,
   previewFollow: true,
+  previewCaret: true,
+  slotHints: true,
   dataset: 'codecogs_alike',
   geometry: { left: 80, top: 80, width: 580, height: 660 },
 };
