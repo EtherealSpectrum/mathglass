@@ -206,6 +206,14 @@ function handleShortcutEvent(e, isFromHost = false) {
       }
       return true;
     }
+    if (e.code === 'KeyF' && !e.shiftKey && window.mathglassDesktop?.isDesktop) {
+      if (!isFromHost) e.preventDefault?.();
+      if (!inNotepad) notepad.setNotepadOpen(true);
+      const willEnter = !document.body.classList.contains('notepad-reader-mode');
+      window.__toggleNotepadReaderMode?.();
+      if (!willEnter) scheduleEditorFocus(true);
+      return true;
+    }
     if (e.key === 'Enter' && inNotepad && (isNpFocused || isFromHost) && !window.mathglassDesktop?.isDesktop) {
       const npInsBtn = $('#notepad-insert-btn');
       if (npInsBtn) {

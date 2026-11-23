@@ -290,15 +290,32 @@ body.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer.hidden {
   border-radius: 0 !important;
 }
 
+/* Στο Web Extension το εξωτερικό wrapper βάφει τη διαφάνεια· στο Desktop (Electron)
+   δεν υπάρχει wrapper, οπότε το #notepad-preview-outer πρέπει να σέβεται το --panel-alpha */
 :root[data-transparent="true"]:has(body.notepad-reader-mode),
 :root[data-transparent="true"] body.notepad-reader-mode,
 :root[data-transparent="true"] body.notepad-reader-mode #notepad-view,
 :root[data-transparent="true"] body.notepad-reader-mode .notepad-body,
-:root[data-transparent="true"] body.notepad-reader-mode #notepad-preview-outer,
+:root:not([data-desktop="true"])[data-transparent="true"] body.notepad-reader-mode #notepad-preview-outer,
 :root[data-transparent="true"] body.notepad-reader-mode #notepad-preview-wrap,
 :root[data-transparent="true"] body.notepad-reader-mode #notepad-preview {
   background: transparent !important;
   background-color: transparent !important;
+}
+
+:root[data-desktop="true"][data-transparent="true"] body.notepad-reader-mode #notepad-preview-outer {
+  background: rgba(var(--renderer-rgb), var(--panel-alpha, 1)) !important;
+  background-color: rgba(var(--renderer-rgb), var(--panel-alpha, 1)) !important;
+}
+
+:root[data-desktop="true"]:not([data-maximized="true"]) body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer,
+:root[data-desktop="true"]:not([data-maximized="true"]) body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer.hidden {
+  inset: 8px !important;
+  width: calc(100% - 16px) !important;
+  height: calc(100% - 16px) !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(128, 128, 128, calc(0.22 + 0.14 * var(--panel-alpha, 1))) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, calc(0.45 * var(--panel-alpha, 1))) !important;
 }
 
 :root[data-transparent="true"] body.notepad-reader-mode #notepad-preview-outer {
@@ -325,12 +342,13 @@ body.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer.hidden {
   color: #181a1f !important;
 }
 
-:root[data-transparent="true"][data-theme="dark"] body.notepad-reader-mode .notepad-preview-header {
+:root:not([data-desktop="true"])[data-transparent="true"][data-theme="dark"] body.notepad-reader-mode .notepad-preview-header,
+:root:not([data-desktop="true"])[data-transparent="true"][data-theme="light"] body.notepad-reader-mode .notepad-preview-header {
   background: rgba(var(--toolbar-rgb), var(--panel-alpha, 1)) !important;
 }
 
-:root[data-transparent="true"][data-theme="light"] body.notepad-reader-mode .notepad-preview-header {
-  background: rgba(var(--toolbar-rgb), var(--panel-alpha, 1)) !important;
+:root[data-desktop="true"][data-transparent="true"] body.notepad-reader-mode .notepad-preview-header {
+  background: transparent !important;
 }
 
 body.notepad-reader-mode .notepad-preview-header {

@@ -538,25 +538,36 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
     });
   }
 
-  html = html.replace(/\[url=((?:https?:\/\/|mailto:)[^\]]+)\]([\s\S]*?)\[\/url\]/gi, (_, href, label) => {
+  html = html.replace(/\[url=([^\]]+)\]([\s\S]*?)\[\/url\]/gi, (full, href, label) => {
     const cleanHref = stripPosMarkers(href).trim();
+    if (!/^(?:https?:\/\/|mailto:)[^\s<>"']+$/i.test(cleanHref)) return full;
     return `<a href="${cleanHref}" target="_blank" rel="noopener noreferrer">${label}</a>`;
   });
-  html = html.replace(/\[url\]((?:https?:\/\/|mailto:)[^\[]+)\[\/url\]/gi, (_, href) => {
-    const hadCaret = CARET_MARK_RE.test(href);
-    CARET_MARK_RE.lastIndex = 0;
+  html = html.replace(/\[url\]([\s\S]*?)\[\/url\]/gi, (full, href) => {
+    const hadCaret = href.includes(CARET_MARK);
     const hadSelStart = href.includes(SEL_START_MARK);
     const hadSelEnd = href.includes(SEL_END_MARK);
     const cleanHref = stripPosMarkers(href).trim();
+    if (!/^(?:https?:\/\/|mailto:)[^\s<>"']+$/i.test(cleanHref)) return full;
     return `${hadSelStart ? SEL_START_MARK : ''}<a href="${cleanHref}" target="_blank" rel="noopener noreferrer">${cleanHref}</a>${hadSelEnd ? SEL_END_MARK : ''}${hadCaret ? CARET_MARK : ''}`;
   });
-  html = html.replace(/\[img\](https?:\/\/[^\[]+)\[\/img\]/gi, (_, src) => {
-    const hadCaret = CARET_MARK_RE.test(src);
-    CARET_MARK_RE.lastIndex = 0;
+  html = html.replace(/\[img(?:=([^\]]*))?\]((?:(?!\[\/?img\b)[\s\S])*?)\[\/img\]/gi, (full, sizeAttr, src) => {
+    const hadCaret = src.includes(CARET_MARK);
     const hadSelStart = src.includes(SEL_START_MARK);
     const hadSelEnd = src.includes(SEL_END_MARK);
     const cleanSrc = stripPosMarkers(src).trim();
-    return `${hadSelStart ? SEL_START_MARK : ''}<img src="${cleanSrc}" alt="Εικόνα phpBB" loading="lazy">${hadSelEnd ? SEL_END_MARK : ''}${hadCaret ? CARET_MARK : ''}`;
+    if (!/^(?:https?:\/\/|data:image\/(?:png|jpe?g|gif|webp|bmp|svg\+xml);base64,)[^\s<>"']+$/i.test(cleanSrc)) {
+      return full;
+    }
+    let sizeStyle = '';
+    const cleanSize = sizeAttr ? stripPosMarkers(sizeAttr).trim() : '';
+    const dimMatch = cleanSize.match(/^(\d{1,4})x(\d{1,4})$/i);
+    if (dimMatch) {
+      sizeStyle = ` style="width:${dimMatch[1]}px;height:${dimMatch[2]}px;max-width:100%;object-fit:contain;"`;
+    } else if (/^\d{1,4}$/.test(cleanSize)) {
+      sizeStyle = ` style="width:${cleanSize}px;max-width:100%;height:auto;"`;
+    }
+    return `${hadSelStart ? SEL_START_MARK : ''}<img src="${cleanSrc}" alt="Εικόνα phpBB" referrerpolicy="no-referrer"${sizeStyle}>${hadSelEnd ? SEL_END_MARK : ''}${hadCaret ? CARET_MARK : ''}`;
   });
   html = html.replace(/\[ggb\]([\s\S]*?)\[\/ggb\]/gi, (_, id) => {
     const hadCaret = CARET_MARK_RE.test(id);

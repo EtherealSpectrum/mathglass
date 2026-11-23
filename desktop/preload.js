@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('mathglassDesktop', {
   setBounds: bounds => ipcRenderer.send('mathglass:resize-bounds', bounds),
   getState: () => ipcRenderer.invoke('mathglass:get-state'),
   openExternal: url => ipcRenderer.send('mathglass:open-external', url),
+  fetchImageDataUrl: url => ipcRenderer.invoke('mathglass:fetch-image-data-url', url),
   onWindowState: cb => {
     const fn = (_e, st) => cb?.(st);
     ipcRenderer.on('mathglass:window-state', fn);
