@@ -1,6 +1,6 @@
 # MathGlass (v3.4.0)
 
-**Έκδοση (Version):** `v3.4.0` · **Πλατφόρμες:** Chrome / Edge / Brave / Opera / Firefox (Επέκταση Browser — Προτεινόμενη) & Windows (Desktop)
+**Έκδοση (Version):** `v3.4.0` · **Πλατφόρμες:** Chrome / Edge / Brave / Opera / Firefox (Επέκταση Browser) & Windows (Desktop)
 
 Αιωρούμενος επεξεργαστής εξισώσεων LaTeX (KaTeX) & υβριδικό σημειωματάριο phpBB για **Chrome / Edge / Firefox (Επέκταση Browser)** και **Windows (Desktop)**, με εφέ διαφάνειας 0%–100%, ζωντανή WYSIWYG προεπισκόπηση και εξαγωγή σε PNG, PDF και SVG.
 
@@ -16,8 +16,8 @@
 
 | Έκδοση | Αρχείο Release | Για ποιον προορίζεται |
 | :--- | :--- | :--- |
-| **🌐 Επέκταση Browser *(Προτεινόμενη)*** | `MathGlass-Web-Extension-3.4.0.zip` | **Η πιο ολοκληρωμένη και γρήγορη έκδοση.** Για γραφή απευθείας μέσα σε ιστοσελίδες & φόρουμ (phpBB κ.ά.) με κουμπί **Εισαγωγή στη σελίδα** (`Ctrl+Enter`). |
-| **🖥️ MathGlass Desktop (Εγκαταστάτης)** | `MathGlass-Desktop-3.4.0-win-x64.exe` | Αυτόνομο πρόγραμμα επιφάνειας εργασίας για Windows με **πραγματική διαφάνεια 0%–100%** πάνω από GeoGebra, PDF, browser ή την Επιφάνεια Εργασίας. |
+| **🌐 Επέκταση Browser** | `MathGlass-Web-Extension-3.4.0.zip` | Για γραφή απευθείας μέσα σε ιστοσελίδες & φόρουμ (phpBB κ.ά.) με κουμπί **Εισαγωγή στη σελίδα** (`Ctrl+Enter`). |
+| **🖥️ MathGlass Desktop (Εκτελέσιμο `.exe`)** | `MathGlass-Desktop-3.4.0-win-x64.exe` | Αυτόνομο πρόγραμμα επιφάνειας εργασίας για Windows με **πραγματική διαφάνεια 0%–100%** πάνω από GeoGebra, PDF, browser ή την Επιφάνεια Εργασίας. |
 | **🖥️ MathGlass Desktop (Portable ZIP)** | `MathGlass-Desktop-3.4.0-win-x64.zip` | **Portable** έκδοση της εφαρμογής Desktop για Windows σε `.zip` (περιέχει το εκτελέσιμο `.exe` για χρήση χωρίς εγκατάσταση). |
 
 > 💡 Αναλυτικές οδηγίες για κάθε αρχείο βρίσκονται στην ενότητα [**Λήψη & Εγκατάσταση**](#-λήψη--εγκατάσταση) παρακάτω.
@@ -128,9 +128,9 @@
 
 ## 📦 Λήψη & Εγκατάσταση
 
-Κατέβασε το κατάλληλο αρχείο από την τελευταία έκδοση στα [**GitHub Releases**](https://github.com/EtherealSpectrum/mathglass/releases/latest) και ακολούθησε τα βήματα παρακάτω. **Προτείνουμε την Επέκταση Browser**, καθώς είναι πιο ολοκληρωμένη και γρήγορη στην καθημερινή χρήση.
+Κατέβασε το κατάλληλο αρχείο από την τελευταία έκδοση στα [**GitHub Releases**](https://github.com/EtherealSpectrum/mathglass/releases/latest) και ακολούθησε τα βήματα παρακάτω:
 
-### 1. 🌐 Επέκταση Browser *(Προτεινόμενη — Chrome / Edge / Brave / Opera)*
+### 1. 🌐 Επέκταση Browser (Chrome / Edge / Brave / Opera)
 
 1. Από τα [**Releases**](https://github.com/EtherealSpectrum/mathglass/releases/latest) κατέβασε το **`MathGlass-Web-Extension-3.4.0.zip`**.
 2. **Αποσυμπίεσε** το `MathGlass-Web-Extension-3.4.0.zip` σε έναν μόνιμο φάκελο στον υπολογιστή σου *(μην διαγράψεις τον φάκελο μετά — ο browser φορτώνει την επέκταση από εκεί)*.
@@ -170,16 +170,16 @@
 
 ### 3. 🖥️ MathGlass Desktop (Windows)
 
-#### Α. Εγκαταστάτης `.exe`
+#### Α. Εκτελέσιμο `.exe` (`MathGlass-Desktop-3.4.0-win-x64.exe`)
 1. Από τα [**Releases**](https://github.com/EtherealSpectrum/mathglass/releases/latest) κατέβασε το αρχείο **`MathGlass-Desktop-3.4.0-win-x64.exe`**.
-2. Κάνε διπλό κλικ στο `MathGlass-Desktop-3.4.0-win-x64.exe` για να ξεκινήσει η εγκατάσταση.
+2. Κάνε διπλό κλικ στο `MathGlass-Desktop-3.4.0-win-x64.exe` για να ανοίξει η εφαρμογή.
    > **Σημείωση για Windows SmartScreen:** Επειδή η εφαρμογή διανέμεται δωρεάν χωρίς εμπορική ψηφιακή υπογραφή, αν εμφανιστεί προειδοποίηση *"Τα Windows προστάτευσαν τον υπολογιστή σας"*, πάτησε **«Περισσότερες πληροφορίες»** → **«Εκτέλεση ούτως ή άλλως»**.
-3. Μετά την εγκατάσταση άνοιξε το **MathGlass**, χρησιμοποίησε το slider διαφάνειας (`0%–100%`) επάνω δεξιά για να βλέπεις πίσω από το παράθυρο (Επιφάνεια Εργασίας, GeoGebra, PDF κ.λπ.) και το κουμπί **Pin** (`Alt+Shift+P`) για να μένει πάντα σε πρώτο πλάνο.
+3. Χρησιμοποίησε το slider διαφάνειας (`0%–100%`) επάνω δεξιά για να βλέπεις πίσω από το παράθυρο (Επιφάνεια Εργασίας, GeoGebra, PDF κ.λπ.) και το κουμπί **Pin** (`Alt+Shift+P`) για να μένει πάντα σε πρώτο πλάνο.
 
 #### Β. Portable έκδοση `.zip` (`MathGlass-Desktop-3.4.0-win-x64.zip`)
 1. Από τα [**Releases**](https://github.com/EtherealSpectrum/mathglass/releases/latest) κατέβασε το αρχείο **`MathGlass-Desktop-3.4.0-win-x64.zip`**.
 2. **Αποσυμπίεσε** το αρχείο σε έναν φάκελο στον υπολογιστή σου.
-3. Τρέξε απευθείας το **`.exe`** που βρίσκεται μέσα στον αποσυμπιεσμένο φάκελο (χωρίς εγκατάσταση).
+3. Τρέξε απευθείας το **`.exe`** που βρίσκεται μέσα στον αποσυμπιεσμένο φάκελο.
 
 ---
 
