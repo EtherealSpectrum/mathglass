@@ -24,6 +24,8 @@ export const KEYS = {
   notepadText:             'latex_notepad_text',
   notepadHeight:           'latex_notepad_preview_height',
   notepadWidth:            'latex_notepad_preview_width',
+  notepadBottomHeight:     'latex_notepad_bottom_height',
+  notepadLayout:           'latex_notepad_layout',
   notepadScale:            'latex_notepad_font_scale',
   notepadScaleAuto:        'latex_notepad_font_auto',
   notepadPreviewScale:     'latex_notepad_preview_scale',
@@ -34,11 +36,15 @@ export const KEYS = {
   headerBtnScaleAuto:      'latex_header_btn_scale_auto',
   notepadAutoDollar:       'latex_notepad_auto_dollar',
   syntaxHighlight:         'latex_syntax_highlight',
-  intuitiveNav:            'latex_intuitive_nav_enabled',
+  previewEdit:             'latex_preview_edit_enabled',
+  previewClickLock:        'latex_preview_click_cursor_lock',
   autoBraces:              'latex_auto_braces_enabled',
   previewFollow:           'latex_preview_follow_enabled',
   previewCaret:            'latex_preview_caret_enabled',
   slotHints:               'latex_slot_hints_enabled',
+  sansFont:                'latex_sans_font',
+  monoFont:                'latex_mono_font',
+  windowPreset:            'latex_window_preset',
   equationHistory:         'latex_equation_history',
   favoriteEquations:       'latex_favorite_equations',
 };
@@ -55,16 +61,43 @@ export const MSG = {
 };
 
 export const LIMITS = {
-  toolbar:        { min: 0.7, max: 2.0, step: 0.1 },
-  preview:        { min: 0.5, max: 3.0, step: 0.1 },
-  editor:         { min: 0.7, max: 2.0, step: 0.1 },
-  notepad:        { min: 0.75, max: 2.2, step: 0.1 },
-  notepadPreview: { min: 0.65, max: 2.4, step: 0.1 },
-  notepadToolbar: { min: 0.8, max: 2.0, step: 0.1 },
-  headerBtn:      { min: 0.8, max: 2.0, step: 0.1 },
+  toolbar:        { min: 0.7,  max: 2.4, step: 0.1 },
+  preview:        { min: 0.5,  max: 3.5, step: 0.1 },
+  editor:         { min: 0.7,  max: 3.0, step: 0.1 },
+  notepad:        { min: 0.75, max: 3.0, step: 0.1 },
+  notepadPreview: { min: 0.65, max: 3.2, step: 0.1 },
+  notepadToolbar: { min: 0.8,  max: 2.4, step: 0.1 },
+  headerBtn:      { min: 0.8,  max: 2.2, step: 0.1 },
   recentMax: 12,
   equationHistoryMax: 15,
   previewMaxRatio: 0.65,
+};
+
+export const FONT_PRESETS = {
+  sans: {
+    default: '"Segoe UI", "Noto Sans", system-ui, -apple-system, Helvetica, Arial, sans-serif',
+    segoe:   '"Segoe UI", system-ui, sans-serif',
+    arial:   'Arial, "Helvetica Neue", Helvetica, sans-serif',
+    verdana: 'Verdana, Geneva, Tahoma, sans-serif',
+    tahoma:  'Tahoma, Geneva, sans-serif',
+    georgia: 'Georgia, "Times New Roman", serif',
+  },
+  mono: {
+    default:   '"JetBrains Mono", "Cascadia Code", "DejaVu Sans Mono", "Liberation Mono", Consolas, Menlo, monospace',
+    jetbrains: '"JetBrains Mono", Consolas, monospace',
+    consolas:  'Consolas, "Cascadia Code", "Courier New", monospace',
+    fira:      '"Fira Code", "Cascadia Mono", Consolas, monospace',
+    courier:   '"Courier New", Courier, monospace',
+  },
+};
+
+export const WINDOW_PRESETS = {
+  default:  { width: 920, height: 700, maximize: false },
+  compact:  { width: 660,  height: 540,  maximize: false },
+  normal:   { width: 920,  height: 700,  maximize: false },
+  wide:     { width: 1120, height: 780,  maximize: false },
+  xlarge:   { width: 1320, height: 880,  maximize: false },
+  maximize: { width: 0,    height: 0,    maximize: true },
 };
 
 export const DEFAULTS = {
@@ -81,7 +114,12 @@ export const DEFAULTS = {
   textstyle: true,
   displaystyle: true,
   notepadAutoDollar: true,
-  intuitiveNav: true,
+  previewEdit: true,
+  previewClickLock: false,
+  notepadLayout: 'right',
+  sansFont: 'default',
+  monoFont: 'default',
+  windowPreset: 'default',
   autoBraces: true,
   previewFollow: true,
   previewCaret: true,

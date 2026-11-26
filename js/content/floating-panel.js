@@ -227,10 +227,10 @@
     const cw = document.documentElement.clientWidth || window.innerWidth || 1280;
     const ch = document.documentElement.clientHeight || window.innerHeight || 800;
     const hh = getHandleH();
-    const width = Math.max(Math.min(MIN_W, cw - 16), Math.min(820, Math.round(cw * 0.64), cw - 24));
-    const height = Math.max(Math.min(460, ch - hh - 16), Math.min(680, Math.round(ch * 0.84), ch - hh - 24));
+    const width = Math.max(Math.min(MIN_W, cw - 16), Math.min(920, Math.round(cw * 0.72), cw - 24));
+    const height = Math.max(Math.min(460, ch - hh - 16), Math.min(700, Math.round(ch * 0.85), ch - hh - 24));
     const left = Math.max(8, Math.round((cw - width) / 2));
-    const top = Math.max(8, Math.round(Math.min(56, Math.max(8, (ch - height) / 2))));
+    const top = Math.max(8, Math.round(Math.min(48, Math.max(8, (ch - height) / 2))));
     return { left, top, width, height };
   };
   let geo = getDefaultGeo();
@@ -262,6 +262,7 @@
     toolbar: '<rect x="3" y="3" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="17" width="18" height="4" rx="1"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
     moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+    tutorial: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
     min: '<path d="M3 7h8"/>',
     restore: '<rect x="3" y="3" width="8" height="8" rx="1"/>',
     close: '<path d="M3.5 3.5l7 7M10.5 3.5l-7 7"/>',
@@ -311,6 +312,7 @@
   const btnPreview = mkBarBtn(ICON.preview, 'Απόκρυψη ζωντανής προεπισκόπησης (Alt+P)');
   const btnToolbar = mkBarBtn(ICON.toolbar, 'Απόκρυψη εργαλειοθήκης (Alt+K)');
   const btnTheme = mkBarBtn(ICON.sun, 'Εναλλαγή θέματος (Alt+T)');
+  const btnTutorial = mkBarBtn(ICON.tutorial, 'Οδηγός χρήσης (F1)');
 
   const divider = document.createElement('span');
   divider.style.cssText = 'width:1px;height:16px;background:var(--lfp-line);margin:0 2px;flex-shrink:0';
@@ -339,7 +341,7 @@
   controlsGroup.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px;max-width:100%';
   controlsGroup.append(
     btnSettings, btnRecent, btnNotepad, btnTransp, sliderWrap, transpVal, btnBlur,
-    btnPreview, btnToolbar, btnTheme, divider, btnMin, btnFull, btnClose
+    btnPreview, btnToolbar, btnTheme, btnTutorial, divider, btnMin, btnFull, btnClose
   );
   handle.append(titleSpan, controlsGroup);
 
@@ -384,9 +386,10 @@
     const onBarePage = !minimized && (!ae || ae === document.body || ae === document.documentElement);
     const isMod = e.ctrlKey || e.metaKey;
     const isPanelAlt = e.altKey && !isMod && !e.shiftKey && /^(Key[NCTOBKPSRMELFXGWIHAVQUYZJ]|Digit[0-9]|Slash|Equal|Minus|NumpadAdd|NumpadSubtract|Numpad[0-9])$/.test(e.code);
-    const isPanelAltShift = e.altKey && !isMod && e.shiftKey && /^(Key[BCHSIG]|Backspace|Equal|Minus|NumpadAdd|NumpadSubtract|Digit0|Numpad0)$/.test(e.code);
+    const isPanelAltShift = e.altKey && !isMod && e.shiftKey && /^(Key[BCHSIGEDLP]|Backspace|Equal|Minus|NumpadAdd|NumpadSubtract|Digit0|Numpad0)$/.test(e.code);
     const isPanelCtrl = inPanel && isMod && !e.altKey && (e.key === 'Enter' || /^(Key[BIKU]|Backslash)$/.test(e.code) || (e.shiftKey && /^(Key[FX]|Digit[78])$/.test(e.code)));
     const isPanelEsc = inPanel && e.key === 'Escape';
+    const isPanelF1 = inPanel && !isMod && !e.altKey && !e.shiftKey && e.code === 'F1';
     const isPanelF11 = inPanel && !isMod && !e.altKey && !e.shiftKey && e.code === 'F11';
     if (isPanelF11) {
       e.preventDefault();
@@ -394,7 +397,7 @@
       btnFull.click();
       return;
     }
-    if ((inPanel || (onBarePage && (isPanelAlt || isPanelAltShift))) && (isPanelAlt || isPanelAltShift || isPanelCtrl || isPanelEsc)) {
+    if ((inPanel || (onBarePage && (isPanelAlt || isPanelAltShift))) && (isPanelAlt || isPanelAltShift || isPanelCtrl || isPanelEsc || isPanelF1)) {
       e.preventDefault();
       e.stopPropagation();
       if (e.altKey) suppressHostAltKeyup = true;
@@ -483,7 +486,7 @@
 
   function applyHeaderBtnScale(s) {
     const v = Number(s);
-    headerBtnScale = Number.isFinite(v) ? Math.max(0.8, Math.min(2.0, v)) : 1;
+    headerBtnScale = Number.isFinite(v) ? Math.max(0.8, Math.min(2.2, v)) : 1;
     wrapper.style.setProperty('--lfp-btn-scale', String(headerBtnScale));
     if (minimized) {
       wrapper.style.height = getHandleH() + 'px';
@@ -642,6 +645,11 @@
     postToPanel({ type: M_ACTION, action: 'set-theme', theme });
     requestAnimationFrame(focusEditorInPanel);
   });
+  btnTutorial.addEventListener('click', e => {
+    e.stopPropagation(); ensureUnminimized();
+    postToPanel({ type: M_ACTION, action: 'toggle-tutorial' });
+    requestAnimationFrame(focusEditorInPanel);
+  });
 
   let ssTX = 0, ssTY = 0, ssRaf = null, ssLastT = 0, ssLastRaf = 0, ssProgY = -1, ssPending = false;
   const SS_EASE = 0.40, SS_SNAP = 1;
@@ -712,10 +720,38 @@
       }
       return;
     }
+    if (d?.type === 'latex-panel-set-window-size') {
+      ensureUnminimized();
+      if (d.maximize) {
+        if (!fullscreen) btnFull.click();
+      } else {
+        if (fullscreen) btnFull.click();
+        const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
+        const hh = getHandleH();
+        const reqW = Number(d.width) > 0 ? Number(d.width) : wrapper.offsetWidth;
+        const reqH = Number(d.height) > 0 ? Number(d.height) : wrapper.offsetHeight;
+        const w = Math.max(Math.min(MIN_W, cw - 16), Math.min(reqW, cw - 16));
+        const h = Math.max(Math.min(dynamicMinH, ch - hh - 16), Math.min(reqH, ch - hh - 16));
+        const left = Math.max(8, Math.round((cw - w) / 2));
+        const top = Math.max(8, Math.round((ch - h) / 2));
+        Object.assign(wrapper.style, {
+          left: left + 'px',
+          top: top + 'px',
+          width: w + 'px',
+          height: h + 'px',
+        });
+        savedHeight = h;
+        updateResponsiveBar();
+        persist();
+        requestAnimationFrame(syncPanelAnchors);
+      }
+      return;
+    }
     if (d?.type === M_POPUP_STATE) {
       btnSettings.classList.toggle('lfp-active', Boolean(d.settingsOpen));
       btnRecent.classList.toggle('lfp-active', Boolean(d.recentOpen));
       btnNotepad.classList.toggle('lfp-active', Boolean(d.notepadOpen));
+      btnPreview.style.display = (d.notepadOpen && d.notepadViewMode === 'wysiwyg') ? 'none' : '';
       return;
     }
     if (d?.type === M_SCROLL) { ssBy(d.deltaX || 0, d.deltaY || 0); return; }
@@ -773,6 +809,7 @@
 
   btnFull.addEventListener('click', e => {
     e.stopPropagation(); ssStop();
+    drag = null; rs = null; iframe.style.pointerEvents = '';
     fullscreen = !fullscreen;
     if (fullscreen) {
       preFsGeo = { left: wrapper.offsetLeft, top: wrapper.offsetTop, width: wrapper.offsetWidth, height: minimized ? savedHeight : wrapper.offsetHeight };
@@ -781,7 +818,10 @@
       wrapper.style.left = '0px'; wrapper.style.top = '0px';
       wrapper.style.width = document.documentElement.clientWidth + 'px';
       wrapper.style.height = document.documentElement.clientHeight + 'px';
-      wrapper.style.borderRadius = '0'; resizeHandle.style.display = 'none'; handle.style.cursor = 'default';
+      wrapper.style.borderRadius = '0';
+      resizeHandle.style.display = 'none';
+      resizeHandle.style.pointerEvents = 'none';
+      handle.style.cursor = 'default';
       setIcon(btnFull, ICON.exit, 'Έξοδος από Πλήρη Οθόνη');
     } else {
       const t = preFsGeo || getDefaultGeo();
@@ -793,7 +833,9 @@
       wrapper.style.left = Math.max(0, Math.min(t.left, cw - w)) + 'px';
       wrapper.style.top = Math.max(0, Math.min(t.top, ch - h)) + 'px';
       wrapper.style.width = w + 'px'; wrapper.style.height = h + 'px';
-      minimized = false; iframe.style.display = 'block'; resizeHandle.style.display = 'flex';
+      minimized = false; iframe.style.display = 'block';
+      resizeHandle.style.display = 'flex';
+      resizeHandle.style.pointerEvents = 'auto';
       wrapper.style.borderRadius = '10px'; handle.style.cursor = 'grab';
       savedHeight = wrapper.offsetHeight;
       setIcon(btnMin, ICON.min, 'Ελαχιστοποίηση'); setIcon(btnFull, ICON.full, 'Πλήρης Οθόνη');
@@ -825,7 +867,7 @@
     handle.style.cursor = 'grabbing'; iframe.style.pointerEvents = 'none'; e.preventDefault();
   });
   add(handle, 'pointermove', e => {
-    if (!drag) return;
+    if (!drag || fullscreen) return;
     const w = wrapper.offsetWidth, h = minimized ? getHandleH() : wrapper.offsetHeight;
     const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
     wrapper.style.left = Math.max(0, Math.min(drag.l + e.clientX - drag.x, cw - w)) + 'px';
@@ -834,7 +876,7 @@
   const endDrag = e => {
     if (!drag) return; drag = null;
     try { handle.releasePointerCapture(e.pointerId); } catch { }
-    handle.style.cursor = 'grab'; iframe.style.pointerEvents = ''; persist();
+    handle.style.cursor = fullscreen ? 'default' : 'grab'; iframe.style.pointerEvents = ''; persist();
   };
   add(handle, 'pointerup', endDrag); add(handle, 'pointercancel', endDrag);
 
@@ -847,7 +889,7 @@
     iframe.style.pointerEvents = 'none'; e.preventDefault(); e.stopPropagation();
   });
   add(resizeHandle, 'pointermove', e => {
-    if (!rs) return;
+    if (!rs || fullscreen) return;
     const cw = document.documentElement.clientWidth, ch = document.documentElement.clientHeight;
     const hh = getHandleH();
     const minW = Math.min(MIN_W, cw - 16), minH = Math.min(dynamicMinH, ch - hh - 16);
@@ -868,6 +910,8 @@
 
   add(window, 'resize', () => {
     if (fullscreen) {
+      wrapper.style.left = '0px';
+      wrapper.style.top = '0px';
       wrapper.style.width = document.documentElement.clientWidth + 'px';
       wrapper.style.height = document.documentElement.clientHeight + 'px';
       updateResponsiveBar();

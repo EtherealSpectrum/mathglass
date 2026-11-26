@@ -3,6 +3,9 @@
 // ============================================================
 (function() {
     try {
+        if (document.body) {
+            document.body.classList.add('notepad-open', 'notepad-reader-mode', 'notepad-reader-edit');
+        }
         const tg = document.getElementById('toggle-group');
         const sb = document.getElementById('settings-btn');
         if (tg && sb && localStorage.getItem('latex_settings_collapsed') === 'true') {
@@ -34,6 +37,12 @@
         if (npTbBtn) {
             npTbBtn.classList.toggle('active', !npTbHidden);
             npTbBtn.setAttribute('aria-pressed', !npTbHidden ? 'true' : 'false');
+        }
+
+        const npBody = document.querySelector('.notepad-body');
+        if (npBody) {
+            const lay = localStorage.getItem('latex_notepad_layout') === 'bottom' ? 'bottom' : 'right';
+            npBody.setAttribute('data-notepad-layout', lay);
         }
 
         if (localStorage.getItem('latex_preview_hidden') === 'true') {

@@ -3,9 +3,7 @@
    ============================================================ */
 :root:not([data-desktop="true"])[data-transparent="true"][data-blur="true"] .standalone-header,
 :root:not([data-desktop="true"])[data-transparent="true"][data-blur="true"] .toolbars-container,
-:root:not([data-desktop="true"])[data-transparent="true"][data-blur="true"] .notepad-bar,
 :root:not([data-desktop="true"])[data-transparent="true"][data-blur="true"] .phpbb-toolbar,
-:root:not([data-desktop="true"])[data-transparent="true"][data-blur="true"] .notepad-templates-bar,
 :root:not([data-desktop="true"])[data-transparent="true"][data-blur="true"] .preview-outer,
 :root:not([data-desktop="true"])[data-transparent="true"][data-blur="true"] .notepad-preview-outer {
   -webkit-backdrop-filter: blur(14px) saturate(145%) !important;
@@ -14,9 +12,7 @@
 
 :root[data-transparent="true"][data-blur="false"] .standalone-header,
 :root[data-transparent="true"][data-blur="false"] .toolbars-container,
-:root[data-transparent="true"][data-blur="false"] .notepad-bar,
 :root[data-transparent="true"][data-blur="false"] .phpbb-toolbar,
-:root[data-transparent="true"][data-blur="false"] .notepad-templates-bar,
 :root[data-transparent="true"][data-blur="false"] .preview-outer,
 :root[data-transparent="true"][data-blur="false"] .notepad-preview-outer {
   -webkit-backdrop-filter: none !important;

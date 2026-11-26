@@ -12,6 +12,7 @@ import * as notepad from './notepad.js';
 import * as highlighter from './highlighter.js';
 import * as shortcuts from './shortcuts.js';
 import * as notepadExtras from './notepad-extras.js';
+import * as tutorial from './tutorial.js';
 
 const ac = new AbortController();
 
@@ -22,14 +23,26 @@ function getWindowContext() {
 
 function mountDesktopResizeHandles() {
     const desktop = window.mathglassDesktop;
-    if (!desktop?.isDesktop || !desktop.getBounds || !desktop.setBounds) return;
-    if (document.querySelector('.mg-edge-handle')) return;
+    if (!desktop?.isDesktop || !desktop.getBounds || !desktop.setBounds) return () => { };
+    if (document.querySelector('.mg-edge-handle')) return () => { };
 
     const dirs = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
     let dragState = null;
 
+    const onUp = () => {
+        if (!dragState) return;
+        dragState = null;
+        window.removeEventListener('pointermove', onMove, true);
+        window.removeEventListener('pointerup', onUp, true);
+        window.removeEventListener('pointercancel', onUp, true);
+    };
+
     const onMove = e => {
         if (!dragState) return;
+        if (document.documentElement.getAttribute('data-maximized') === 'true') {
+            onUp();
+            return;
+        }
         const dx = e.screenX - dragState.sx;
         const dy = e.screenY - dragState.sy;
         const b = { ...dragState.bounds };
@@ -55,14 +68,6 @@ function mountDesktopResizeHandles() {
         desktop.setBounds(b);
     };
 
-    const onUp = () => {
-        if (!dragState) return;
-        dragState = null;
-        window.removeEventListener('pointermove', onMove, true);
-        window.removeEventListener('pointerup', onUp, true);
-        window.removeEventListener('pointercancel', onUp, true);
-    };
-
     for (const dir of dirs) {
         const el = document.createElement('div');
         el.className = `mg-edge-handle mg-edge-${dir}`;
@@ -76,7 +81,7 @@ function mountDesktopResizeHandles() {
             e.preventDefault();
             e.stopPropagation();
             const bounds = await desktop.getBounds();
-            if (!bounds) return;
+            if (!bounds || document.documentElement.getAttribute('data-maximized') === 'true') return;
             dragState = { dir, sx: e.screenX, sy: e.screenY, bounds };
             window.addEventListener('pointermove', onMove, true);
             window.addEventListener('pointerup', onUp, true);
@@ -84,15 +89,21 @@ function mountDesktopResizeHandles() {
         });
         document.body.appendChild(el);
     }
+
+    return onUp;
 }
 
 function bindDesktopBridge() {
     const desktop = window.mathglassDesktop;
     if (!desktop?.isDesktop) return;
 
+    const cancelEdgeDrag = mountDesktopResizeHandles();
+
     const applyWinState = st => {
         if (!st) return;
         document.documentElement.setAttribute('data-maximized', st.maximized ? 'true' : 'false');
+        document.documentElement.setAttribute('data-snapped', st.snapped ? 'true' : 'false');
+        if (st.maximized) cancelEdgeDrag?.();
         const pinBtn = $('#desktop-pin-btn');
         const maxBtn = $('#desktop-max-btn');
         if (pinBtn) {
@@ -103,8 +114,11 @@ function bindDesktopBridge() {
             maxBtn.classList.toggle('active', Boolean(st.maximized));
             maxBtn.title = st.maximized
                 ? 'Επαναφορά παραθύρου (Alt+Shift+F)'
-                : 'Μεγιστοποίηση παραθύρου (Alt+Shift+F)';
+                : 'Μεγιστοποίηση / Διάταξη παραθύρου (Alt+Shift+F)';
         }
+        document.querySelectorAll('.mg-snap-tile[data-snap-zone]').forEach(tile => {
+            tile.classList.toggle('is-active', tile.getAttribute('data-snap-zone') === st.snapZone);
+        });
     };
 
     desktop.getState?.().then(applyWinState).catch(() => { });
@@ -113,16 +127,91 @@ function bindDesktopBridge() {
         window.__handlePanelShortcut?.(payload);
     });
     ac.signal.addEventListener('abort', () => {
+        cancelEdgeDrag?.();
         unsubState?.();
         unsubShortcut?.();
     }, { once: true });
 
     $('#desktop-pin-btn')?.addEventListener('click', () => desktop.winAction('pin'));
     $('#desktop-min-btn')?.addEventListener('click', () => desktop.winAction('minimize'));
-    $('#desktop-max-btn')?.addEventListener('click', () => desktop.winAction('maximize'));
+    $('#desktop-max-btn')?.addEventListener('click', () => {
+        hideSnapFlyout();
+        desktop.winAction('maximize');
+    });
     $('#desktop-close-btn')?.addEventListener('click', () => desktop.winAction('close'));
 
-    mountDesktopResizeHandles();
+    const headerBar = $('.standalone-header');
+    if (headerBar && desktop.startDrag && desktop.dragMove && desktop.endDrag) {
+        let draggingWin = false;
+        let dragPointerId = null;
+        const stopWinDrag = () => {
+            if (!draggingWin) return;
+            draggingWin = false;
+            if (dragPointerId !== null) {
+                try { headerBar.releasePointerCapture?.(dragPointerId); } catch { }
+                dragPointerId = null;
+            }
+            window.removeEventListener('pointermove', onWinMove, true);
+            window.removeEventListener('pointerup', stopWinDrag, true);
+            window.removeEventListener('pointercancel', stopWinDrag, true);
+            window.removeEventListener('blur', stopWinDrag, true);
+            desktop.endDrag();
+        };
+        const onWinMove = () => {
+            if (!draggingWin) return;
+            desktop.dragMove();
+        };
+        headerBar.addEventListener('pointerdown', e => {
+            if (e.button !== 0 || e.detail >= 2) return;
+            if (e.target.closest('button, input, select, .transparency-group, .mg-snap-flyout')) return;
+            e.preventDefault();
+            draggingWin = true;
+            dragPointerId = e.pointerId;
+            try { headerBar.setPointerCapture?.(e.pointerId); } catch { }
+            desktop.startDrag();
+            window.addEventListener('pointermove', onWinMove, true);
+            window.addEventListener('pointerup', stopWinDrag, true);
+            window.addEventListener('pointercancel', stopWinDrag, true);
+            window.addEventListener('blur', stopWinDrag, true);
+        });
+        headerBar.addEventListener('dblclick', e => {
+            if (e.target.closest('button, input, select, .transparency-group, .mg-snap-flyout')) return;
+            desktop.winAction('maximize');
+        });
+        ac.signal.addEventListener('abort', stopWinDrag, { once: true });
+    }
+
+    const maxWrap = $('#desktop-max-wrap');
+    const snapFlyout = $('#mg-snap-flyout');
+    let snapHoverTimer = null;
+    let snapHideTimer = null;
+    function hideSnapFlyout() {
+        clearTimeout(snapHoverTimer);
+        clearTimeout(snapHideTimer);
+        snapFlyout?.classList.remove('open');
+    }
+    if (maxWrap && snapFlyout && desktop.snapZone) {
+        const scheduleShow = () => {
+            clearTimeout(snapHideTimer);
+            clearTimeout(snapHoverTimer);
+            snapHoverTimer = setTimeout(() => snapFlyout.classList.add('open'), 260);
+        };
+        const scheduleHide = () => {
+            clearTimeout(snapHoverTimer);
+            clearTimeout(snapHideTimer);
+            snapHideTimer = setTimeout(() => snapFlyout.classList.remove('open'), 180);
+        };
+        maxWrap.addEventListener('mouseenter', scheduleShow);
+        maxWrap.addEventListener('mouseleave', scheduleHide);
+        snapFlyout.addEventListener('click', e => {
+            const tile = e.target.closest('[data-snap-zone]');
+            if (!tile) return;
+            e.stopPropagation();
+            const zone = tile.getAttribute('data-snap-zone');
+            hideSnapFlyout();
+            desktop.snapZone(zone);
+        });
+    }
 }
 
 function mountStandaloneHeaderIfNeeded() {
@@ -146,9 +235,26 @@ function mountStandaloneHeaderIfNeeded() {
         <button class="preview-toggle desktop-win-btn" id="desktop-min-btn" type="button" aria-label="Ελαχιστοποίηση" title="Ελαχιστοποίηση (Alt+Shift+M)">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
-        <button class="preview-toggle desktop-win-btn" id="desktop-max-btn" type="button" aria-label="Μεγιστοποίηση" title="Μεγιστοποίηση παραθύρου (Alt+Shift+F)">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
-        </button>
+        <div class="mg-snap-wrap" id="desktop-max-wrap">
+            <button class="preview-toggle desktop-win-btn" id="desktop-max-btn" type="button" aria-label="Μεγιστοποίηση" title="Μεγιστοποίηση / Διάταξη παραθύρου (Alt+Shift+F)">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
+            </button>
+            <div class="mg-snap-flyout" id="mg-snap-flyout" role="menu" aria-label="Διατάξεις Παραθύρου">
+                <div class="mg-snap-layout-card" title="Διαίρεση 1/2">
+                    <button type="button" class="mg-snap-tile" data-snap-zone="left" aria-label="Μισό Αριστερά (1/2)" title="Μισό Αριστερά (1/2)"></button>
+                    <button type="button" class="mg-snap-tile" data-snap-zone="right" aria-label="Μισό Δεξιά (1/2)" title="Μισό Δεξιά (1/2)"></button>
+                </div>
+                <div class="mg-snap-layout-card mg-snap-layout-grid" title="Τέταρτα 1/4">
+                    <button type="button" class="mg-snap-tile" data-snap-zone="top-left" aria-label="Πάνω Αριστερά (1/4)" title="Πάνω Αριστερά (1/4)"></button>
+                    <button type="button" class="mg-snap-tile" data-snap-zone="top-right" aria-label="Πάνω Δεξιά (1/4)" title="Πάνω Δεξιά (1/4)"></button>
+                    <button type="button" class="mg-snap-tile" data-snap-zone="bottom-left" aria-label="Κάτω Αριστερά (1/4)" title="Κάτω Αριστερά (1/4)"></button>
+                    <button type="button" class="mg-snap-tile" data-snap-zone="bottom-right" aria-label="Κάτω Δεξιά (1/4)" title="Κάτω Δεξιά (1/4)"></button>
+                </div>
+                <div class="mg-snap-layout-card mg-snap-layout-full" title="Πλήρης Οθόνη">
+                    <button type="button" class="mg-snap-tile" data-snap-zone="maximize" aria-label="Πλήρης Οθόνη" title="Πλήρης Οθόνη"></button>
+                </div>
+            </div>
+        </div>
         <button class="preview-toggle desktop-win-btn desktop-close-btn" id="desktop-close-btn" type="button" aria-label="Κλείσιμο" title="Κλείσιμο παραθύρου (Alt+Shift+Q)">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>`
@@ -185,6 +291,9 @@ function mountStandaloneHeaderIfNeeded() {
         <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Εναλλαγή θέματος" title="Εναλλαγή θέματος">
             <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
             <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        </button>
+        <button class="preview-toggle" id="tutorial-toggle" type="button" aria-label="Οδηγός χρήσης" title="Οδηγός χρήσης (F1)">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
         </button>
         ${desktopBtnsHtml}
     `;
@@ -225,12 +334,17 @@ function mountStandaloneHeaderIfNeeded() {
         notepad.init(ac);
         shortcuts.init(ac);
         notepadExtras.init(ac);
+        tutorial.init(ac);
         window.__refreshSyntaxHighlight = highlighter.refreshAll;
         window.__syncHighlightFont = highlighter.syncFontFromTextarea;
+        window.__rebuildToolbar = toolbar.build;
         highlighter.init(ac);
 
         bindControls(ac);
         toolbar.bind(ac);
+
+        notepad.setNotepadOpen(true);
+        window.__setNotepadViewMode?.('wysiwyg', { silentFocus: true });
 
         if (window.__renderPreview) window.__renderPreview();
         bridge.reportNaturalSize(200);

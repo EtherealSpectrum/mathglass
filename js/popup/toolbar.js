@@ -1,5 +1,11 @@
 import { LIMITS, MSG } from '../core/constants.js';
 import { $, on, clamp } from '../core/dom.js';
+import {
+  normalizeSearchStr,
+  extractPrimaryCommands,
+  buildAliasList,
+  scoreTextMatch,
+} from '../core/latex-search.js';
 import { state, toggleFavoriteEquation, removeEquationFromHistory, clearEquationHistory } from './settings.js';
 
 let openPanelId = null, hoverTimer = null, anchor = null;
@@ -20,27 +26,27 @@ const DATASETS = {
   science:        () => window.TOOLBARS_SCIENCE || [],
 };
 
-function normalizeSearchStr(str) {
-  return String(str || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
 function getSymbolSearchIndex() {
   if (searchIndexCache) return searchIndexCache;
   const list = [];
-  const seen = new Set();
-  for (const dsFn of [DATASETS.codecogs_alike, DATASETS.basic, DATASETS.science]) {
+  const byKey = new Map();
+  const dsEntries = [
+    ['codecogs_alike', DATASETS.codecogs_alike],
+    ['basic', DATASETS.basic],
+    ['science', DATASETS.science],
+  ];
+  for (const [dsKey, dsFn] of dsEntries) {
     const groupsList = dsFn() || [];
     for (const tb of groupsList) {
       for (const grp of tb.groups || []) {
         for (const item of grp.items || []) {
-          const sigKey = `${item.action || ''}|${item.matrixType || ''}|${item.before || ''}|${item.after || ''}|${item.title || ''}`;
-          if (seen.has(sigKey)) continue;
-          seen.add(sigKey);
-          const hay = normalizeSearchStr([
+          const sigKey = `${item.action || ''}|${item.matrixType || ''}|${(item.before || '').trim()}|${(item.after || '').trim()}|${item.label || ''}`;
+          const cmds = extractPrimaryCommands(item);
+          const cmdsNorm = cmds.map(c => normalizeSearchStr(c));
+          const aliasesNorm = buildAliasList(item, grp.id, grp.title);
+          const titleNorm = normalizeSearchStr(item.title || item.label || '');
+          const groupNorm = normalizeSearchStr(grp.title || '');
+          const rawFields = normalizeSearchStr([
             item.title,
             item.before,
             item.after,
@@ -49,7 +55,40 @@ function getSymbolSearchIndex() {
             grp.title,
             item.id,
           ].filter(Boolean).join(' '));
-          list.push({ item, groupTitle: grp.title || '', hay });
+
+          const existing = byKey.get(sigKey);
+          if (existing) {
+            existing.datasets.add(dsKey);
+            if (grp.title && !existing.groupTitles.includes(grp.title)) {
+              existing.groupTitles.push(grp.title);
+              existing.groupNorm = normalizeSearchStr(existing.groupTitles.join(' '));
+            }
+            if (aliasesNorm) {
+              existing.aliasesNorm = `${existing.aliasesNorm} ${aliasesNorm}`.trim();
+              existing.aliasWords = existing.aliasesNorm.split(/\s+/).filter(Boolean);
+            }
+            existing.hay = `${existing.hay} ${rawFields} ${aliasesNorm}`.trim();
+            continue;
+          }
+
+          const recentKey = item.id || item.title || item.render || '';
+          const entry = {
+            item,
+            groupTitle: grp.title || '',
+            groupTitles: grp.title ? [grp.title] : [],
+            datasets: new Set([dsKey]),
+            recentKey,
+            cmdsNorm,
+            primaryCmdLen: cmdsNorm[0] ? cmdsNorm[0].length : 12,
+            titleNorm,
+            titleWords: titleNorm.split(/[\s/(),]+/).filter(Boolean),
+            aliasesNorm,
+            aliasWords: aliasesNorm.split(/\s+/).filter(Boolean),
+            groupNorm,
+            hay: `${rawFields} ${aliasesNorm}`.trim(),
+          };
+          byKey.set(sigKey, entry);
+          list.push(entry);
         }
       }
     }
@@ -298,11 +337,43 @@ function addToRecent(item) {
 function renderSymbolSearchResults(query) {
   const resultsEl = $('#toolbar-search-results');
   if (!resultsEl) return;
-  const terms = normalizeSearchStr(query).split(/\s+/).filter(Boolean);
+  const rawNorm = normalizeSearchStr(query);
+  const terms = rawNorm.split(/\s+/).filter(Boolean);
   const index = getSymbolSearchIndex();
-  const matches = terms.length === 0
-    ? index.slice(0, 14)
-    : index.filter(entry => terms.every(t => entry.hay.includes(t))).slice(0, 18);
+
+  const recentMap = new Map();
+  (state.recent || []).forEach((it, idx) => {
+    const k = it.id || it.title || it.render || '';
+    if (k && !recentMap.has(k)) recentMap.set(k, idx);
+  });
+
+  let matches;
+  if (terms.length === 0) {
+    const recents = [];
+    const seenRecent = new Set();
+    for (const r of state.recent || []) {
+      const k = r.id || r.title || r.render || '';
+      if (!k || seenRecent.has(k)) continue;
+      const found = index.find(e => e.recentKey === k);
+      if (found) {
+        seenRecent.add(k);
+        recents.push(found);
+      }
+    }
+    const defaults = index.filter(e => !seenRecent.has(e.recentKey));
+    matches = [...recents, ...defaults].slice(0, 20);
+  } else {
+    const scored = [];
+    for (const entry of index) {
+      const s = scoreTextMatch(entry, terms, rawNorm, {
+        activeDataset: state.dataset,
+        recentMap,
+      });
+      if (s > 0) scored.push({ entry, score: s });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    matches = scored.slice(0, 28).map(x => x.entry);
+  }
 
   searchResultsItems = matches.map(m => m.item);
   searchSelectedIdx = 0;
@@ -318,7 +389,8 @@ function renderSymbolSearchResults(query) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'toolbar-search-item' + (idx === 0 ? ' is-selected' : '');
-    btn.title = `${item.title || item.before || ''} (${entry.groupTitle})`;
+    const cmdHint = item.before ? ` · ${item.before}${item.after || ''}` : '';
+    btn.title = `${item.title || item.before || ''} (${entry.groupTitles?.join(' / ') || entry.groupTitle})${cmdHint}`;
     const symSpan = document.createElement('span');
     symSpan.className = 'toolbar-search-sym';
     if (item.render) {

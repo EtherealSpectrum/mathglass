@@ -1,6 +1,18 @@
 import { KEYS } from '../core/constants.js';
 import { $, on, clamp, rafThrottle } from '../core/dom.js';
-import { computeCtrlArrowTarget, computeSmartLatexArrowTarget, computeTabJumpTarget, replaceRangePreservingUndo } from '../core/latex-nav.js';
+import {
+  computeCtrlArrowTarget,
+  computeSmartLatexArrowTarget,
+  computeTabJumpTarget,
+  computeWysiwygMathEdit,
+  computeWysiwygVerticalArrowTarget,
+  findPrecedingFractionOperandStart,
+  replaceRangePreservingUndo,
+  skipInvisibleMathWhitespaceBack,
+  skipInvisibleMathWhitespaceForward,
+} from '../core/latex-nav.js';
+import { findActiveStructuralSlot } from '../core/latex-click.js';
+import { normalizeSearchStr, buildAliasList, extractPrimaryCommands } from '../core/latex-search.js';
 import { set } from '../core/storage.js';
 import { state } from './settings.js';
 import { isAutoDollarWrapEnabled, isCursorInsideKaTeX } from './notepad.js';
@@ -9,6 +21,29 @@ function isEscapedAt(str, idx) {
   let b = 0;
   for (let k = idx - 1; k >= 0 && str[k] === '\\'; k--) b++;
   return (b % 2) === 1;
+}
+
+function unwrapOuterMathDelims(rawText) {
+  const trimmed = String(rawText || '').trim();
+  if (!trimmed) return rawText;
+  const pairs = [
+    ['$$', '$$'],
+    ['\\[', '\\]'],
+    ['\\(', '\\)'],
+    ['[latex]', '[/latex]'],
+    ['[tex]', '[/tex]'],
+    ['$', '$'],
+  ];
+  for (const [open, close] of pairs) {
+    if (trimmed.length >= open.length + close.length) {
+      const low = trimmed.toLowerCase();
+      if (low.startsWith(open) && low.endsWith(close)) {
+        const inner = trimmed.slice(open.length, trimmed.length - close.length);
+        if (!inner.includes(close)) return inner.trim();
+      }
+    }
+  }
+  return rawText;
 }
 
 const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
@@ -60,7 +95,7 @@ const LATEX_AC_ITEMS = [
   { cmd: '\\overline', ins: '\\overline{}', back: 1, tex: '\\overline{AB}', desc: 'Άνω γραμμή / ευθ. τμήμα' },
   { cmd: '\\underline', ins: '\\underline{}', back: 1, tex: '\\underline{x}', desc: 'Υπογράμμιση' },
   { cmd: '\\binom', ins: '\\binom{}{}', back: 3, tex: '\\binom{n}{k}', desc: 'Διωνυμικός συντελεστής' },
-  { cmd: '\\left(', ins: '\\left(  \\right)', back: 8, tex: '\\left(x\\right)', desc: 'Προσαρμοζόμενες παρενθέσεις' },
+  { cmd: '\\left(', ins: '\\left(\\right)', back: 7, tex: '\\left(x\\right)', desc: 'Προσαρμοζόμενες παρενθέσεις' },
   { cmd: '\\sin', ins: '\\sin ', back: 0, tex: '\\sin', desc: 'Ημίτονο' },
   { cmd: '\\cos', ins: '\\cos ', back: 0, tex: '\\cos', desc: 'Συνημίτονο' },
   { cmd: '\\tan', ins: '\\tan ', back: 0, tex: '\\tan', desc: 'Εφαπτομένη' },
@@ -99,12 +134,194 @@ const LATEX_AC_ITEMS = [
   { cmd: '\\Sigma', ins: '\\Sigma', back: 0, tex: '\\Sigma', desc: 'Κεφαλαίο Σ' },
   { cmd: '\\Phi', ins: '\\Phi', back: 0, tex: '\\Phi', desc: 'Κεφαλαίο Φ' },
   { cmd: '\\Omega', ins: '\\Omega', back: 0, tex: '\\Omega', desc: 'Κεφαλαίο Ω' },
-  { cmd: '\\begin{cases}', ins: '\\begin{cases}\n & \\\\\n & \n\\end{cases}', back: 20, tex: '\\begin{cases} a \\\\ b \\end{cases}', desc: 'Σύστημα / κλαδική' },
-  { cmd: '\\begin{aligned}', ins: '\\begin{aligned}\n &= \n\\end{aligned}', back: 17, tex: '\\begin{aligned} x &= 1 \\end{aligned}', desc: 'Στοίχιση εξισώσεων' },
-  { cmd: '\\begin{pmatrix}', ins: '\\begin{pmatrix}\n & \\\\\n & \n\\end{pmatrix}', back: 22, tex: '\\begin{pmatrix} a & b \\end{pmatrix}', desc: 'Μήτρα (...)' },
-  { cmd: '\\begin{bmatrix}', ins: '\\begin{bmatrix}\n & \\\\\n & \n\\end{bmatrix}', back: 22, tex: '\\begin{bmatrix} a & b \\end{bmatrix}', desc: 'Μήτρα [...]' },
-  { cmd: '\\begin{vmatrix}', ins: '\\begin{vmatrix}\n & \\\\\n & \n\\end{vmatrix}', back: 22, tex: '\\begin{vmatrix} a & b \\end{vmatrix}', desc: 'Ορίζουσα |...|' },
+  { cmd: '\\begin{cases}', ins: '\\begin{cases}\n & \\\\\n & \n\\end{cases}', back: 12, tex: '\\begin{cases} a \\\\ b \\end{cases}', desc: 'Σύστημα / κλαδική' },
+  { cmd: '\\begin{aligned}', ins: '\\begin{aligned}\n &= \n\\end{aligned}', back: 14, tex: '\\begin{aligned} x &= 1 \\end{aligned}', desc: 'Στοίχιση εξισώσεων' },
+  { cmd: '\\begin{pmatrix}', ins: '\\begin{pmatrix}\n & \\\\\n & \n\\end{pmatrix}', back: 14, tex: '\\begin{pmatrix} a & b \\end{pmatrix}', desc: 'Μήτρα (...)' },
+  { cmd: '\\begin{bmatrix}', ins: '\\begin{bmatrix}\n & \\\\\n & \n\\end{bmatrix}', back: 14, tex: '\\begin{bmatrix} a & b \\end{bmatrix}', desc: 'Μήτρα [...]' },
+  { cmd: '\\begin{vmatrix}', ins: '\\begin{vmatrix}\n & \\\\\n & \n\\end{vmatrix}', back: 14, tex: '\\begin{vmatrix} a & b \\end{vmatrix}', desc: 'Ορίζουσα |...|' },
+  { cmd: '\\begin{Bmatrix}', ins: '\\begin{Bmatrix}\n & \\\\\n & \n\\end{Bmatrix}', back: 14, tex: '\\begin{Bmatrix} a & b \\end{Bmatrix}', desc: 'Μήτρα {...}' },
+  { cmd: '\\begin{Vmatrix}', ins: '\\begin{Vmatrix}\n & \\\\\n & \n\\end{Vmatrix}', back: 14, tex: '\\begin{Vmatrix} a & b \\end{Vmatrix}', desc: 'Νόρμα ||...||' },
+  { cmd: '\\begin{matrix}', ins: '\\begin{matrix}\n & \\\\\n & \n\\end{matrix}', back: 13, tex: '\\begin{matrix} a & b \\end{matrix}', desc: 'Απλός πίνακας' },
+  { cmd: '\\textcolor', ins: '\\textcolor{}{}', back: 3, tex: '\\textcolor{red}{x}', desc: 'Χρώμα κειμένου' },
+  { cmd: '\\operatorname', ins: '\\operatorname{}', back: 1, tex: '\\operatorname{sgn}(x)', desc: 'Προσαρμοσμένος τελεστής' },
+  { cmd: '\\overset', ins: '\\overset{}{}', back: 3, tex: '\\overset{a}{b}', desc: 'Σύμβολο από πάνω' },
+  { cmd: '\\underset', ins: '\\underset{}{}', back: 3, tex: '\\underset{a}{b}', desc: 'Σύμβολο από κάτω' },
+  { cmd: '\\overbrace', ins: '\\overbrace{}', back: 1, tex: '\\overbrace{abc}', desc: 'Πάνω αγκύλη' },
+  { cmd: '\\underbrace', ins: '\\underbrace{}', back: 1, tex: '\\underbrace{abc}', desc: 'Κάτω αγκύλη' },
+  { cmd: '\\widehat', ins: '\\widehat{}', back: 1, tex: '\\widehat{abc}', desc: 'Μεγάλο καπέλο' },
+  { cmd: '\\widetilde', ins: '\\widetilde{}', back: 1, tex: '\\widetilde{abc}', desc: 'Μεγάλη περισπωμένη' },
+  { cmd: '\\overrightarrow', ins: '\\overrightarrow{}', back: 1, tex: '\\overrightarrow{AB}', desc: 'Διάνυσμα (βέλος)' },
+  { cmd: '\\xrightarrow', ins: '\\xrightarrow[]{}', back: 3, tex: '\\xrightarrow[n]{m}', desc: 'Εκτεταμένο δεξί βέλος' },
+  { cmd: '\\xleftarrow', ins: '\\xleftarrow[]{}', back: 3, tex: '\\xleftarrow[n]{m}', desc: 'Εκτεταμένο αριστερό βέλος' },
 ];
+
+const AC_RECENT_KEY = 'latex_ac_recent';
+let acCatalogCache = null;
+let acRecentList = null;
+
+function getAcRecentList() {
+  if (acRecentList) return acRecentList;
+  try {
+    const raw = localStorage.getItem(AC_RECENT_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    acRecentList = Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string') : [];
+  } catch {
+    acRecentList = [];
+  }
+  return acRecentList;
+}
+
+function recordAcRecent(cmd) {
+  if (!cmd) return;
+  const list = getAcRecentList().filter(c => c !== cmd);
+  list.unshift(cmd);
+  if (list.length > 24) list.length = 24;
+  acRecentList = list;
+  try { localStorage.setItem(AC_RECENT_KEY, JSON.stringify(list)); } catch { }
+}
+
+function deriveAcEntryFromItem(item) {
+  if (!item) return null;
+  if (item.action === 'matrix-builder' && item.matrixType) {
+    const env = item.matrixType;
+    const cmd = `\\begin{${env}}`;
+    return {
+      cmd,
+      ins: `\\begin{${env}}\n & \\\\\n & \n\\end{${env}}`,
+      back: env.length + 7,
+      tex: item.render || cmd,
+      desc: item.title || env,
+    };
+  }
+  const before = typeof item.before === 'string' ? item.before : '';
+  const after = typeof item.after === 'string' ? item.after : '';
+  if (!before.startsWith('\\')) return null;
+
+  // Handle \operatorname{name}( or \operatorname*{argmax}_{
+  const opStar = before.match(/^\\operatorname\*?\{([a-zA-Z]+)\}(.*)$/);
+  if (opStar) {
+    const name = opStar[1];
+    return {
+      cmd: `\\${name}`,
+      ins: before + after,
+      back: after.length,
+      tex: item.render || before + after,
+      desc: item.title || name,
+    };
+  }
+
+  // Handle \mathbb{R}, \textcolor{red}{, \left\langle, etc.
+  const texCmd = before.match(/^\\(?:mathbb|mathbf|mathrm|mathcal|mathfrak|mathit|mathsf|mathtt|textcolor|text)\{[a-zA-Z0-9]+\}$/);
+  if (texCmd && !after) {
+    return {
+      cmd: before,
+      ins: before,
+      back: 0,
+      tex: item.render || before,
+      desc: item.title || before,
+    };
+  }
+
+  const colTemplate = before.match(/^(\\textcolor\{[a-zA-Z]+\})\{$/);
+  if (colTemplate) {
+    return {
+      cmd: colTemplate[1],
+      ins: before + after,
+      back: after.length,
+      tex: item.render || `${colTemplate[1]}{x}`,
+      desc: item.title || colTemplate[1],
+    };
+  }
+
+  const leftDelim = before.match(/^(\\left\\?[a-zA-Z(.|\[]+)/);
+  if (leftDelim && before.startsWith('\\left')) {
+    const cleanCmd = leftDelim[1].trim();
+    return {
+      cmd: cleanCmd,
+      ins: before + after,
+      back: after.length,
+      tex: item.render || `${before}x${after}`,
+      desc: item.title || cleanCmd,
+    };
+  }
+
+  const baseMatch = before.match(/^(\\[a-zA-Z]+)/);
+  if (!baseMatch) return null;
+  const cmd = baseMatch[1];
+  if (cmd.length < 2) return null;
+
+  let ins = before + after;
+  let back = after.length;
+  if (!after && before === cmd && !before.endsWith(' ')) {
+    // Pure zero-arg command
+    ins = before;
+    back = 0;
+  }
+  return {
+    cmd,
+    ins,
+    back,
+    tex: item.render || (after ? `${before}x${after}` : cmd),
+    desc: item.title || cmd,
+  };
+}
+
+function getAutocompleteCatalog() {
+  if (acCatalogCache) return acCatalogCache;
+  const map = new Map();
+
+  const registerItem = (rawEntry, aliasesStr = '') => {
+    if (!rawEntry || !rawEntry.cmd) return;
+    const key = rawEntry.cmd.toLowerCase();
+    const existing = map.get(key);
+    if (existing) {
+      if (aliasesStr) {
+        existing.aliasesNorm = `${existing.aliasesNorm} ${aliasesStr}`.trim();
+        existing.aliasWords = existing.aliasesNorm.split(/\s+/).filter(Boolean);
+      }
+      return;
+    }
+    const cmdNorm = normalizeSearchStr(rawEntry.cmd);
+    const descNorm = normalizeSearchStr(rawEntry.desc || '');
+    const combinedAlias = normalizeSearchStr(`${rawEntry.desc || ''} ${aliasesStr || ''}`);
+    map.set(key, {
+      ...rawEntry,
+      cmdNorm,
+      cmdNoSlash: cmdNorm.startsWith('\\') ? cmdNorm.slice(1) : cmdNorm,
+      descNorm,
+      aliasesNorm: combinedAlias,
+      aliasWords: combinedAlias.split(/[\s/(),]+/).filter(Boolean),
+    });
+  };
+
+  for (const seed of LATEX_AC_ITEMS) {
+    const seedCmds = extractPrimaryCommands({ before: seed.cmd, render: seed.tex });
+    const seedAliases = seedCmds.map(c => buildAliasList({ before: c, render: seed.tex, title: seed.desc }, '', '')).join(' ');
+    registerItem(seed, seedAliases);
+  }
+
+  const datasets = [
+    window.TOOLBARS_CODECOGS_ALIKE,
+    window.TOOLBARS_BASIC,
+    window.TOOLBARS_SCIENCE,
+  ];
+  for (const tbList of datasets) {
+    if (!Array.isArray(tbList)) continue;
+    for (const tb of tbList) {
+      for (const grp of tb.groups || []) {
+        for (const item of grp.items || []) {
+          const derived = deriveAcEntryFromItem(item);
+          if (!derived) continue;
+          const aliases = buildAliasList(item, grp.id, grp.title);
+          registerItem(derived, aliases);
+        }
+      }
+    }
+  }
+
+  acCatalogCache = Array.from(map.values());
+  return acCatalogCache;
+}
 
 let acState = { open: false, target: null, slashPos: 0, endPos: 0, matches: [], activeIdx: 0 };
 let acMirrorEl = null;
@@ -150,6 +367,7 @@ function acceptLatexAutocomplete(idx = acState.activeIdx) {
   const item = acState.matches[idx];
   const ta = acState.target;
   if (!item || !ta) { closeLatexAutocomplete(); return; }
+  recordAcRecent(item.cmd);
   const val = ta.value || '';
   let insText = item.ins;
   let caretPos = acState.slashPos + insText.length - item.back;
@@ -222,20 +440,56 @@ function updateLatexAutocompleteFor(ta) {
   const e = ta.selectionEnd ?? 0;
   if (s !== e) { closeLatexAutocomplete(); return; }
   const val = ta.value || '';
+  const before = val.slice(Math.max(0, s - 28), s);
+  const m = before.match(/\\([a-zA-Z\u0370-\u03FF\u1F00-\u1FFF]{1,24})$/);
+  if (!m) { closeLatexAutocomplete(); return; }
+  const slashPos = s - m[0].length;
+  if (isEscapedAt(val, slashPos)) { closeLatexAutocomplete(); return; }
   if (ta.id === 'notepad-input' && !isCursorInsideKaTeX(val, s)) {
     closeLatexAutocomplete();
     return;
   }
-  const before = val.slice(0, s);
-  const m = before.match(/\\([a-zA-Z]{1,20})$/);
-  if (!m) { closeLatexAutocomplete(); return; }
-  const slashPos = s - m[0].length;
-  if (isEscapedAt(val, slashPos)) { closeLatexAutocomplete(); return; }
-  const prefix = '\\' + m[1].toLowerCase();
-  const matches = LATEX_AC_ITEMS
-    .filter(it => it.cmd.toLowerCase().startsWith(prefix))
-    .slice(0, 8);
-  if (!matches.length || (matches.length === 1 && matches[0].cmd === '\\' + m[1])) {
+
+  const qRaw = m[1];
+  const qNorm = normalizeSearchStr(qRaw);
+  const qSlashNorm = '\\' + qNorm;
+  const catalog = getAutocompleteCatalog();
+  const recents = getAcRecentList();
+  const recentRank = new Map(recents.map((c, idx) => [c, idx]));
+
+  const scored = [];
+  for (const item of catalog) {
+    let score = 0;
+    if (item.cmdNorm === qSlashNorm) {
+      score = 1500;
+    } else if (item.cmdNorm.startsWith(qSlashNorm)) {
+      score = 1000 - Math.min(260, item.cmdNoSlash.length * 5);
+    } else if (item.cmdNoSlash.startsWith('begin{' + qNorm) || item.cmdNoSlash.startsWith('mathbb{' + qNorm)) {
+      score = 720;
+    } else if (item.cmdNoSlash.includes(qNorm)) {
+      score = 420 - Math.min(120, item.cmdNoSlash.length * 2);
+    } else if (item.aliasWords.some(w => w.startsWith(qNorm))) {
+      score = 340;
+    } else if (item.aliasesNorm.includes(qNorm)) {
+      score = 200;
+    }
+    if (score <= 0) continue;
+    if (recentRank.has(item.cmd)) {
+      score += Math.max(30, 150 - recentRank.get(item.cmd) * 8);
+    }
+    scored.push({ item, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score || a.item.cmd.length - b.item.cmd.length);
+  const matches = scored.slice(0, 12).map(x => x.item);
+
+  const singleExactNoArgs = matches.length === 1
+    && matches[0].cmd === '\\' + qRaw
+    && matches[0].back === 0
+    && !matches[0].ins.includes('{')
+    && !matches[0].ins.includes('(');
+
+  if (!matches.length || singleExactNoArgs) {
     closeLatexAutocomplete();
     return;
   }
@@ -245,11 +499,56 @@ function updateLatexAutocompleteFor(ta) {
 
 window.__isLatexAutocompleteOpen = () => acState.open;
 window.__closeLatexAutocomplete = closeLatexAutocomplete;
+window.__invalidateAutocompleteCatalog = () => { acCatalogCache = null; };
 
 export function init(ac) {
   const sig = ac.signal;
   let pendingScroll = false;
   let pendingClickFocus = null;
+  let skipAutoWrapOnce = false;
+  let suppressAutoWrapInputScroll = false;
+
+  let saveTimer = null;
+  const scheduleDraftSave = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => set(KEYS.draft, state.ta.value), 200);
+  };
+
+  const maybeAutoWrapUnbracedSlot = () => {
+    if (state.previewEditEnabled === false || !state.previewNavActive) return false;
+    if (skipAutoWrapOnce) {
+      skipAutoWrapOnce = false;
+      return false;
+    }
+    const ta = state.ta;
+    if (!ta) return false;
+    const s = ta.selectionStart ?? 0;
+    const en = ta.selectionEnd ?? 0;
+    if (s !== en) return false;
+    const val = ta.value || '';
+    const leadLen = val.length - val.trimStart().length;
+    const trimmed = val.trim();
+    if (!trimmed) return false;
+    const pos = clamp(s, 0, val.length);
+    const localPos = clamp(pos - leadLen, 0, trimmed.length);
+    const slot = findActiveStructuralSlot(trimmed, localPos);
+    if (!slot || !slot.needsBraces || slot.isEmpty) return false;
+    const rStart = slot.replaceStart ?? slot.contentStart;
+    const rEnd = slot.replaceEnd ?? slot.contentEnd;
+    const absStart = leadLen + rStart;
+    const absEnd = leadLen + rEnd;
+    const inner = val.slice(absStart, absEnd);
+    if (!inner || inner.startsWith('{')) return false;
+    const rel = clamp(pos - absStart, 0, inner.length);
+    suppressAutoWrapInputScroll = true;
+    replaceRangePreservingUndo(ta, absStart, absEnd, `{${inner}}`, absStart + 1 + rel, absStart + 1 + rel);
+    suppressAutoWrapInputScroll = false;
+    window.__refreshSyntaxHighlight?.();
+    scheduleDraftSave();
+    return true;
+  };
+  window.__maybeAutoWrapEditorSlot = maybeAutoWrapUnbracedSlot;
+
   const flushPreview = rafThrottle(() => {
     const shouldScroll = pendingScroll && Boolean(state.previewFollowEnabled);
     pendingScroll = false;
@@ -257,24 +556,24 @@ export function init(ac) {
       state.userScrolled = false;
       window.__renderPreview?.(true);
     } else {
+      maybeAutoWrapUnbracedSlot();
       window.__syncPreviewCursor?.();
     }
   });
-  let saveTimer = null;
-  const scheduleDraftSave = () => {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => set(KEYS.draft, state.ta.value), 200);
-  };
 
   on(state.ta, 'pointerdown', () => {
     state.previewNavActive = false;
     window.__syncNavIndicators?.();
+    if (!(state.ta.value || '').trim()) {
+      window.__renderPreview?.(false);
+    }
     pendingClickFocus = document.activeElement !== state.ta
       ? { top: state.ta.scrollTop, left: state.ta.scrollLeft, at: performance.now() }
       : null;
   }, true, sig);
 
-  on(state.ta, 'input', () => {
+  on(state.ta, 'input', e => {
+    if (suppressAutoWrapInputScroll) return;
     window.__draftUserEdited = true;
     const follow = Boolean(state.previewFollowEnabled);
     if (follow) state.userScrolled = false;
@@ -306,6 +605,9 @@ export function init(ac) {
   }, false, sig);
 
   on(state.ta, 'keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+      skipAutoWrapOnce = true;
+    }
     if (NAV_KEYS.has(e.key) && state.previewFollowEnabled) {
       state.userScrolled = false;
       pendingScroll = true;
@@ -313,35 +615,122 @@ export function init(ac) {
 
     const isAltGr = e.ctrlKey && e.altKey && !e.metaKey;
     const noMod = !e.ctrlKey && !e.metaKey && !e.altKey;
+    const isWysiwyg = state.previewEditEnabled !== false && state.previewNavActive;
 
-    if (state.autoBracesEnabled && (noMod || isAltGr)) {
+    if (isWysiwyg && (noMod || isAltGr)) {
       const val = state.ta.value || '';
       const s = state.ta.selectionStart ?? val.length;
       const en = state.ta.selectionEnd ?? s;
       const sel = val.slice(s, en);
 
-      if (e.key === '{' && !isEscapedAt(val, s)) {
+      if (e.key === '/' && !isEscapedAt(val, s)) {
+        e.preventDefault();
+        if (en > s) {
+          const ins = `\\dfrac{${sel}}{}`;
+          replaceRangePreservingUndo(state.ta, s, en, ins, s + 7 + sel.length + 2, s + 7 + sel.length + 2);
+        } else {
+          const { opStart, stripParens } = findPrecedingFractionOperandStart(val, 0, s);
+          if (opStart < s) {
+            let num = val.slice(opStart, s);
+            if (stripParens) {
+              if (num.startsWith('\\left(') && num.endsWith('\\right)')) num = num.slice(6, -7).trim();
+              else if (num.startsWith('(') && num.endsWith(')')) num = num.slice(1, -1);
+            }
+            const ins = `\\dfrac{${num}}{}`;
+            replaceRangePreservingUndo(state.ta, opStart, s, ins, opStart + 7 + num.length + 2, opStart + 7 + num.length + 2);
+          } else {
+            replaceRangePreservingUndo(state.ta, s, s, '\\dfrac{}{}', s + 7, s + 7);
+          }
+        }
+        window.__draftUserEdited = true;
+        pendingScroll = Boolean(state.previewFollowEnabled);
+        flushPreview();
+        window.__refreshSyntaxHighlight?.();
+        scheduleDraftSave();
+        return;
+      }
+
+      if (e.key === '*' && !isEscapedAt(val, s)) {
+        e.preventDefault();
+        replaceRangePreservingUndo(state.ta, s, en, '\\cdot ', s + 6, s + 6);
+        window.__draftUserEdited = true;
+        pendingScroll = Boolean(state.previewFollowEnabled);
+        flushPreview();
+        window.__refreshSyntaxHighlight?.();
+        scheduleDraftSave();
+        return;
+      }
+
+      if (noMod && s === en && (e.key === 'Backspace' || e.key === 'Delete')) {
+        if (e.key === 'Backspace' && skipInvisibleMathWhitespaceBack(val, 0, s, val.length) <= 0) {
+          e.preventDefault();
+          state.ta.setSelectionRange(0, 0);
+          pendingScroll = Boolean(state.previewFollowEnabled);
+          flushPreview();
+          return;
+        }
+        if (e.key === 'Delete' && skipInvisibleMathWhitespaceForward(val, s, val.length, 0) >= val.length) {
+          e.preventDefault();
+          state.ta.setSelectionRange(val.length, val.length);
+          pendingScroll = Boolean(state.previewFollowEnabled);
+          flushPreview();
+          return;
+        }
+        const res = computeWysiwygMathEdit(val, s, e.key, 0, val.length);
+        if (res) {
+          e.preventDefault();
+          if (res.kind === 'move') {
+            state.ta.setSelectionRange(res.caret, res.caret);
+            pendingScroll = Boolean(state.previewFollowEnabled);
+            flushPreview();
+            return;
+          }
+          const rem = val.slice(0, res.start) + res.text + val.slice(res.end);
+          if (!rem.trim()) {
+            replaceRangePreservingUndo(state.ta, 0, val.length, '', 0, 0);
+          } else {
+            replaceRangePreservingUndo(state.ta, res.start, res.end, res.text, res.caret, res.caret);
+          }
+          window.__draftUserEdited = true;
+          pendingScroll = Boolean(state.previewFollowEnabled);
+          flushPreview();
+          window.__refreshSyntaxHighlight?.();
+          scheduleDraftSave();
+          return;
+        }
+      }
+    }
+
+    if ((state.autoBracesEnabled || isWysiwyg) && (noMod || isAltGr)) {
+      const val = state.ta.value || '';
+      const s = state.ta.selectionStart ?? val.length;
+      const en = state.ta.selectionEnd ?? s;
+      const sel = val.slice(s, en);
+
+      if (state.autoBracesEnabled && e.key === '{' && !isEscapedAt(val, s)) {
         e.preventDefault();
         replaceRangePreservingUndo(state.ta, s, en, `{${sel}}`, s + 1, s + 1 + sel.length);
         window.__draftUserEdited = true;
         pendingScroll = Boolean(state.previewFollowEnabled);
         flushPreview();
+        window.__refreshSyntaxHighlight?.();
         scheduleDraftSave();
         return;
       }
-      if (e.key === '}' && s === en && val[s] === '}' && !isEscapedAt(val, s)) {
+      if (state.autoBracesEnabled && e.key === '}' && s === en && val[s] === '}' && !isEscapedAt(val, s)) {
         e.preventDefault();
         state.ta.setSelectionRange(s + 1, s + 1);
         if (state.previewFollowEnabled) pendingScroll = true;
         flushPreview();
         return;
       }
-      if (noMod && e.key === 'Backspace' && s === en && s > 0 && val[s - 1] === '{' && val[s] === '}' && !isEscapedAt(val, s - 1)) {
+      if (state.autoBracesEnabled && noMod && e.key === 'Backspace' && s === en && s > 0 && val[s - 1] === '{' && val[s] === '}' && !isEscapedAt(val, s - 1)) {
         e.preventDefault();
         replaceRangePreservingUndo(state.ta, s - 1, s + 1, '', s - 1, s - 1);
         window.__draftUserEdited = true;
         pendingScroll = Boolean(state.previewFollowEnabled);
         flushPreview();
+        window.__refreshSyntaxHighlight?.();
         scheduleDraftSave();
         return;
       }
@@ -352,6 +741,7 @@ export function init(ac) {
         window.__draftUserEdited = true;
         pendingScroll = Boolean(state.previewFollowEnabled);
         flushPreview();
+        window.__refreshSyntaxHighlight?.();
         scheduleDraftSave();
         return;
       }
@@ -368,7 +758,23 @@ export function init(ac) {
       }
     }
 
-    if (state.intuitiveNavEnabled && state.previewNavActive && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    if (isWysiwyg && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      const s = state.ta.selectionStart ?? 0;
+      const en = state.ta.selectionEnd ?? s;
+      if (s === en) {
+        const val = state.ta.value || '';
+        const dir = e.key === 'ArrowDown' ? 1 : -1;
+        const target = computeWysiwygVerticalArrowTarget(val, s, dir, 0, val.length);
+        if (target !== null && target !== s) {
+          e.preventDefault();
+          state.ta.setSelectionRange(target, target);
+          flushPreview();
+          return;
+        }
+      }
+    }
+
+    if (isWysiwyg && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       const s = state.ta.selectionStart ?? 0;
       const en = state.ta.selectionEnd ?? s;
       if (e.shiftKey || s === en) {
@@ -415,6 +821,24 @@ export function init(ac) {
       const insBtn = document.getElementById('insert-btn');
       if (insBtn) { e.preventDefault(); insBtn.click(); }
     }
+  }, false, sig);
+
+  on(state.ta, 'paste', e => {
+    const plain = e.clipboardData?.getData('text/plain');
+    if (typeof plain !== 'string' || !plain) return;
+    const val = state.ta.value || '';
+    const s = state.ta.selectionStart ?? val.length;
+    const en = state.ta.selectionEnd ?? s;
+    const isWysiwyg = state.previewEditEnabled !== false && state.previewNavActive;
+    const cleaned = isWysiwyg ? unwrapOuterMathDelims(plain) : plain;
+    if (cleaned === plain) return;
+    e.preventDefault();
+    replaceRangePreservingUndo(state.ta, s, en, cleaned, s + cleaned.length, s + cleaned.length);
+    window.__draftUserEdited = true;
+    pendingScroll = Boolean(state.previewFollowEnabled);
+    flushPreview();
+    window.__refreshSyntaxHighlight?.();
+    set(KEYS.draft, state.ta.value);
   }, false, sig);
 
   const wireAutocomplete = ta => {

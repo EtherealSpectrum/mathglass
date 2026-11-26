@@ -1,57 +1,30 @@
-import { KEYS } from '../core/constants.js';
 import { $, on } from '../core/dom.js';
-import { set } from '../core/storage.js';
 import { state } from './settings.js';
 
-const TEMPLATES = [
-  {
-    "id": "cases",
-    "label": "Σύστημα Εξισώσεων (cases)",
-    "snippet": "[tex]\\begin{cases}\n2x + 3y = 8 \\\\\nx - y = -1\n\\end{cases}[/tex]"
-  },
-  {
-    "id": "piecewise",
-    "label": "Κλαδική Συνάρτηση (cases)",
-    "snippet": "[tex]f(x) = \\begin{cases}\nx^2 - 1, & x \\ge 0 \\\\\n2x + 3, & x < 0\n\\end{cases}[/tex]"
-  },
-  {
-    "id": "aligned",
-    "label": "Στοίχιση Βημάτων (aligned)",
-    "snippet": "[tex]\\begin{aligned}\nI &= \\int_0^1 (x^2 + 2x)\\,dx \\\\\n  &= \\left[\\frac{x^3}{3} + x^2\\right]_0^1 \\\\\n  &= \\frac{4}{3}\n\\end{aligned}[/tex]"
-  },
-  {
-    "id": "monotonia",
-    "label": "Πίνακας Μονοτονίας (array)",
-    "snippet": "[tex]\\begin{array}{c|ccccc}\nx & -\\infty & & x_1 & & +\\infty \\\\\n\\hline\nf'(x) & & + & 0 & - & \\\\\n\\hline\nf(x) & & \\nearrow & f(x_1) & \\searrow &\n\\end{array}[/tex]"
-  },
-  {
-    "id": "pmatrix",
-    "label": "Πίνακας / Μήτρα (pmatrix)",
-    "snippet": "[tex]A = \\begin{pmatrix}\na_{11} & a_{12} & a_{13} \\\\\na_{21} & a_{22} & a_{23} \\\\\na_{31} & a_{32} & a_{33}\n\\end{pmatrix}[/tex]"
-  },
-  {
-    "id": "exercise-hide",
-    "label": "Άσκηση με Κρυφή Λύση ([hide])",
-    "snippet": "[b]Εκφώνηση:[/b] Να λυθεί στο $\\mathbb{R}$ η εξίσωση $x^2 - 5x + 6 = 0$.\n\n[hide=Ενδεικτική Λύση]\n[list=1]\n[*] Υπολογίζουμε τη διακρίνουσα: $\\Delta = (-5)^2 - 4 \\cdot 1 \\cdot 6 = 1 > 0$.\n[*] Οι ρίζες δίνονται από τον τύπο:\n[tex]x_{1,2} = \\frac{5 \\pm \\sqrt{1}}{2} \\implies x_1 = 2,\\quad x_2 = 3[/tex]\n[/list]\n[b]Απάντηση:[/b] $S = \\{2, 3\\}$\n[/hide]"
-  },
-  {
-    "id": "limit-deriv",
-    "label": "Όριο & Παράγωγος",
-    "snippet": "[tex]\\lim_{x \\to x_0} \\frac{f(x) - f(x_0)}{x - x_0} = f'(x_0)[/tex]"
-  },
-  {
-    "id": "theorem-quote",
-    "label": "Θεώρημα / Απόδειξη",
-    "snippet": "[quote=Θεώρημα]Έστω συνάρτηση $f : A \\to \\mathbb{R}$ συνεχής στο διάστημα $[\\alpha, \\beta]$.\n\n[b]Απόδειξη:[/b] Εφαρμόζουμε το θεώρημα Bolzano στη βοηθητική συνάρτηση $g(x) = f(x) - \\rho$.[/quote]"
-  },
-  {
-    "id": "bb-table",
-    "label": "Πίνακας Τιμών ([table])",
-    "snippet": "[table]\n[tr][th]$x$[/th][th]$0$[/th][th]$\\pi/2$[/th][th]$\\pi$[/th][/tr]\n[tr][td]$\\sin x$[/td][td]$0$[/td][td]$1$[/td][td]$0$[/td][/tr]\n[tr][td]$\\cos x$[/td][td]$1$[/td][td]$0$[/td][td]$-1$[/td][/tr]\n[/table]"
-  }
-];
-
 const overlayMetricsCache = new WeakMap();
+let cachedTaMetrics = null;
+
+function getCachedTextareaMetrics(ta) {
+  if (!ta) return null;
+  if (cachedTaMetrics && cachedTaMetrics.ta === ta && cachedTaMetrics.fontSize === ta.style.fontSize) {
+    return cachedTaMetrics;
+  }
+  const cs = getComputedStyle(ta);
+  cachedTaMetrics = {
+    ta,
+    fontSize: ta.style.fontSize,
+    computedFontSize: cs.fontSize,
+    fontSizeNum: parseFloat(cs.fontSize) || 16,
+    padLeft: parseFloat(cs.paddingLeft) || 14,
+    padTop: parseFloat(cs.paddingTop) || 10,
+    padBottom: parseFloat(cs.paddingBottom) || 10,
+  };
+  return cachedTaMetrics;
+}
+
+window.__invalidateNotepadMetricsCache = () => {
+  cachedTaMetrics = null;
+};
 
 function updateCounter(ta, counterEl) {
   if (!ta || !counterEl) return;
@@ -79,27 +52,6 @@ function syncHighlightOverlay(ta, pre) {
   }
   pre.scrollTop = ta.scrollTop;
   pre.scrollLeft = ta.scrollLeft;
-}
-
-function insertTemplateSnippet(ta, snippet) {
-  try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
-  const s = ta.selectionStart ?? ta.value.length;
-  const e = ta.selectionEnd ?? ta.value.length;
-  const needsGap = s > 0 && ta.value[s - 1] !== '\n' ? '\n\n' : '';
-  const text = needsGap + snippet;
-  let ok = false;
-  try { ok = document.execCommand('insertText', false, text); } catch { }
-  if (!ok) ta.setRangeText(text, s, e, 'end');
-  const follow = Boolean(state.previewFollowEnabled);
-  if (follow) state.notepadUserScrolled = false;
-  window.__renderHybridPreview?.(true, follow);
-  window.__refreshSyntaxHighlight?.();
-  window.__refreshNotepadCaret?.(true);
-  set(KEYS.notepadText, ta.value);
-  requestAnimationFrame(() => {
-    syncHighlightOverlay(ta, $('#notepad-highlight'));
-    window.__refreshNotepadCaret?.(true);
-  });
 }
 
 function prepareMirrorAndMeasure(mirror, val, pos, syncPaddingAndScroll) {
@@ -166,8 +118,8 @@ function updateNotepadEditorCaret(resetBlink = false) {
     return;
   }
 
-  const cs = getComputedStyle(ta);
-  mirror.style.fontSize = ta.style.fontSize || cs.fontSize;
+  const metrics = getCachedTextareaMetrics(ta);
+  mirror.style.fontSize = ta.style.fontSize || metrics.computedFontSize;
   mirror.style.paddingRight = '';
 
   const pos = Math.max(0, Math.min(ta.value.length, ta.selectionEnd ?? ta.value.length));
@@ -191,13 +143,13 @@ function updateNotepadEditorCaret(resetBlink = false) {
   const scrollClampY = refScrollTop - mirror.scrollTop;
   const scrollClampX = refScrollLeft - mirror.scrollLeft;
 
-  const padLeft = parseFloat(cs.paddingLeft) || 14;
+  const padLeft = metrics.padLeft;
   const taSb = Math.max(0, ta.offsetWidth - ta.clientWidth);
   const maxCaretX = Math.max(padLeft, wrap.clientWidth - taSb - 4);
 
   let left = measured.left - wrapRect.left - scrollClampX;
   const top = measured.top - wrapRect.top - scrollClampY;
-  const fallbackH = Math.round((parseFloat(cs.fontSize) || 16) * 1.28);
+  const fallbackH = Math.round(metrics.fontSizeNum * 1.28);
   const height = Math.max(14, Math.round(measured.height || fallbackH));
 
   if (left > maxCaretX && left <= maxCaretX + 16) {
@@ -245,8 +197,8 @@ function ensureNotepadCaretVisible() {
   if (!wrap || !ta || !mirror) return;
   if (!document.body.classList.contains('notepad-open') || document.body.classList.contains('notepad-reader-mode')) return;
 
-  const cs = getComputedStyle(ta);
-  mirror.style.fontSize = ta.style.fontSize || cs.fontSize;
+  const metrics = getCachedTextareaMetrics(ta);
+  mirror.style.fontSize = ta.style.fontSize || metrics.computedFontSize;
   mirror.style.paddingRight = '';
 
   const pos = Math.max(0, Math.min(ta.value.length, (ta.selectionDirection === 'backward' ? ta.selectionStart : ta.selectionEnd) ?? ta.value.length));
@@ -260,9 +212,9 @@ function ensureNotepadCaretVisible() {
   const wrapRect = wrap.getBoundingClientRect();
   if (wrapRect.width <= 0 || wrapRect.height <= 0) return;
 
-  const padTop = parseFloat(cs.paddingTop) || 10;
-  const padBottom = parseFloat(cs.paddingBottom) || 10;
-  const fallbackH = Math.round((parseFloat(cs.fontSize) || 16) * 1.28);
+  const padTop = metrics.padTop;
+  const padBottom = metrics.padBottom;
+  const fallbackH = Math.round(metrics.fontSizeNum * 1.28);
   const h = Math.max(14, Math.round(measured.height || fallbackH));
   const relTop = measured.top - wrapRect.top - (ta.scrollTop - mirror.scrollTop);
   const maxScrollTop = Math.max(0, ta.scrollHeight - ta.clientHeight);
@@ -281,15 +233,24 @@ export function init(ac) {
   const ta = $('#notepad-input');
   const pre = $('#notepad-highlight');
   const counterEl = $('#notepad-counter');
-  const tplBtn = $('#notepad-templates-btn');
-  const tplBar = $('#notepad-templates-bar');
 
   window.__refreshNotepadCaret = (resetBlink = false) => updateNotepadEditorCaret(resetBlink);
   window.__ensureNotepadCaretVisible = () => ensureNotepadCaretVisible();
 
   if (ta) {
     const syncOverlay = () => syncHighlightOverlay(ta, pre);
-    const refreshCaret = (resetBlink = false) => requestAnimationFrame(() => updateNotepadEditorCaret(resetBlink));
+    let caretRafId = 0;
+    let caretPendingReset = false;
+    const refreshCaret = (resetBlink = false) => {
+      if (resetBlink) caretPendingReset = true;
+      if (caretRafId) return;
+      caretRafId = requestAnimationFrame(() => {
+        caretRafId = 0;
+        const rb = caretPendingReset;
+        caretPendingReset = false;
+        updateNotepadEditorCaret(rb);
+      });
+    };
     let pendingClickFocus = null;
 
     on(ta, 'pointerdown', () => {
@@ -348,59 +309,78 @@ export function init(ac) {
     sync();
   }
 
-  if (tplBtn && tplBar && ta) {
-    tplBar.innerHTML =
-      '<span class="notepad-templates-label">Πρότυπα:</span>' +
-      TEMPLATES.map(
-        t => `<button type="button" class="notepad-tpl-chip" data-tpl-id="${t.id}" title="Εισαγωγή προτύπου: ${t.label}">${t.label}</button>`
-      ).join('');
-
-    on(tplBtn, 'mousedown', e => e.preventDefault(), false, sig);
-    on(tplBar, 'mousedown', e => {
-      if (e.target.closest('button')) e.preventDefault();
-    }, false, sig);
-
-    on(tplBtn, 'click', () => {
-      const open = tplBar.classList.toggle('active');
-      tplBtn.classList.toggle('active', open);
-      tplBtn.setAttribute('aria-pressed', String(open));
-      requestAnimationFrame(() => updateNotepadEditorCaret(false));
-    }, false, sig);
-
-    tplBar.querySelectorAll('[data-tpl-id]').forEach(btn => {
-      on(btn, 'click', () => {
-        const tpl = TEMPLATES.find(x => x.id === btn.getAttribute('data-tpl-id'));
-        if (tpl) insertTemplateSnippet(ta, tpl.snippet);
-      }, false, sig);
-    });
-  }
-
-  const npBar = $('.notepad-bar');
-  if (npBar) {
-    on(npBar, 'mousedown', e => {
+  const npFooter = $('.notepad-footer');
+  if (npFooter) {
+    on(npFooter, 'mousedown', e => {
       if (e.target.closest('button')) e.preventDefault();
     }, false, sig);
   }
 
   const readerBtn = $('#notepad-reader-btn');
   const readerEditBtn = $('#notepad-reader-edit-btn');
+  let prevModeBeforeReader = 'wysiwyg';
+  let lastSavedNotepadViewMode = 'wysiwyg';
+  let panelReaderFsActive = false;
 
-  const setReaderEditMode = next => {
-    const inReader = document.body.classList.contains('notepad-reader-mode');
-    const target = inReader && (typeof next === 'boolean' ? next : !document.body.classList.contains('notepad-reader-edit'));
-    document.body.classList.toggle('notepad-reader-edit', target);
-    if (readerEditBtn) {
-      readerEditBtn.classList.toggle('active', target);
-      readerEditBtn.setAttribute('aria-pressed', String(target));
-      readerEditBtn.textContent = target ? '✓ Τέλος Επεξ.' : '✏️ Επεξεργασία';
-      readerEditBtn.title = target
-        ? 'Επιστροφή σε καθαρή Λειτουργία Ανάγνωσης (Alt+W)'
-        : 'Επεξεργασία σημειωματάριου μέσα στη Λειτουργία Ανάγνωσης (χωρίς εμφάνιση πηγαίου κειμένου) (Alt+W)';
+  const getNotepadViewMode = () => {
+    if (!document.body.classList.contains('notepad-reader-mode')) return 'split';
+    return document.body.classList.contains('notepad-reader-edit') ? 'wysiwyg' : 'reader';
+  };
+
+  const setNotepadViewMode = (mode, opts = {}) => {
+    const target = (mode === 'split' || mode === 'reader') ? mode : 'wysiwyg';
+    const current = getNotepadViewMode();
+    if (target === 'reader' && current !== 'reader') {
+      prevModeBeforeReader = current;
     }
-    if (target && ta) {
+    if (target === 'wysiwyg' || target === 'split') {
+      lastSavedNotepadViewMode = target;
+    }
+
+    document.body.classList.toggle('notepad-reader-mode', target !== 'split');
+    document.body.classList.toggle('notepad-reader-edit', target === 'wysiwyg');
+
+    if (readerEditBtn) {
+      readerEditBtn.classList.toggle('active', target === 'split');
+      readerEditBtn.setAttribute('aria-pressed', String(target === 'split'));
+      if (target === 'wysiwyg') {
+        readerEditBtn.textContent = 'Κώδικας LaTeX';
+        readerEditBtn.title = 'Εμφάνιση πηγαίου κώδικα LaTeX / phpBB (διπλή προβολή) (Alt+W)';
+      } else if (target === 'split') {
+        readerEditBtn.textContent = 'WYSIWYG (Ctrl+W)';
+        readerEditBtn.title = 'Επιστροφή σε πλήρη WYSIWYG γραφή (απόκρυψη κώδικα) (Alt+W)';
+      } else {
+        readerEditBtn.textContent = 'Επεξεργασία';
+        readerEditBtn.title = 'Επεξεργασία σημειωματάριου WYSIWYG (Alt+W)';
+      }
+    }
+
+    if (readerBtn) {
+      const inReader = target === 'reader';
+      readerBtn.classList.toggle('active', inReader);
+      readerBtn.setAttribute('aria-pressed', String(inReader));
+      readerBtn.textContent = inReader ? 'Έξοδος' : 'Ανάγνωση';
+      readerBtn.title = inReader
+        ? 'Έξοδος από Λειτουργία Ανάγνωσης (Esc / Alt+F)'
+        : 'Λειτουργία Ανάγνωσης — Πλήρης οθόνη ζωντανής προεπισκόπησης (Alt+F)';
+    }
+
+    if (target === 'wysiwyg') {
       window.__setNotepadPreviewNav?.(true);
       requestAnimationFrame(() => {
-        try { ta.focus({ preventScroll: true }); } catch { try { ta.focus(); } catch { } }
+        if (!opts.silentFocus && ta) {
+          try { ta.focus({ preventScroll: true }); } catch { try { ta.focus(); } catch { } }
+        }
+        window.__renderHybridPreview?.(true, false);
+        updateNotepadEditorCaret(false);
+      });
+    } else if (target === 'split') {
+      window.__setNotepadPreviewNav?.(false);
+      requestAnimationFrame(() => {
+        if (!opts.silentFocus && ta) {
+          try { ta.focus({ preventScroll: true }); } catch { try { ta.focus(); } catch { } }
+        }
+        window.__refreshSyntaxHighlight?.();
         window.__renderHybridPreview?.(true, false);
         updateNotepadEditorCaret(false);
       });
@@ -409,43 +389,56 @@ export function init(ac) {
       window.__renderHybridPreview?.(true, false);
       updateNotepadEditorCaret(false);
     }
+
+    const wantPanelFs = target === 'reader';
+    if (window.parent !== window && wantPanelFs !== panelReaderFsActive) {
+      panelReaderFsActive = wantPanelFs;
+      try { window.parent.postMessage({ type: 'latex-panel-reader-mode', active: wantPanelFs }, '*'); } catch { }
+    }
+    window.__notifyPanelState?.();
   };
-  window.__toggleNotepadReaderEditMode = setReaderEditMode;
+
+  window.__getLastNotepadViewMode = () => lastSavedNotepadViewMode;
+  window.__suspendNotepadViewModeForEditor = () => {
+    const cur = getNotepadViewMode();
+    lastSavedNotepadViewMode = (cur === 'split' || (cur === 'reader' && prevModeBeforeReader === 'split'))
+      ? 'split'
+      : 'wysiwyg';
+    if (panelReaderFsActive && window.parent !== window) {
+      panelReaderFsActive = false;
+      try { window.parent.postMessage({ type: 'latex-panel-reader-mode', active: false }, '*'); } catch { }
+    }
+  };
+  window.__getNotepadViewMode = getNotepadViewMode;
+  window.__setNotepadViewMode = setNotepadViewMode;
+  window.__toggleNotepadReaderEditMode = next => {
+    if (typeof next === 'boolean') {
+      setNotepadViewMode(next ? 'wysiwyg' : 'split');
+    } else {
+      setNotepadViewMode(getNotepadViewMode() === 'wysiwyg' ? 'split' : 'wysiwyg');
+    }
+  };
+  window.__toggleNotepadReaderMode = next => {
+    const cur = getNotepadViewMode();
+    const enter = typeof next === 'boolean' ? next : (cur !== 'reader');
+    if (enter) {
+      setNotepadViewMode('reader');
+    } else {
+      setNotepadViewMode(prevModeBeforeReader === 'split' ? 'split' : 'wysiwyg');
+    }
+  };
+
   if (readerEditBtn) {
     on(readerEditBtn, 'mousedown', e => e.preventDefault(), false, sig);
-    on(readerEditBtn, 'click', () => setReaderEditMode(), false, sig);
+    on(readerEditBtn, 'click', () => {
+      const cur = getNotepadViewMode();
+      setNotepadViewMode(cur === 'wysiwyg' ? 'split' : 'wysiwyg');
+    }, false, sig);
   }
-
-  const setReaderMode = next => {
-    const target = typeof next === 'boolean' ? next : !document.body.classList.contains('notepad-reader-mode');
-    document.body.classList.toggle('notepad-reader-mode', target);
-    if (!target) {
-      window.__setNotepadPreviewNav?.(false);
-      setReaderEditMode(false);
-    } else {
-      setReaderEditMode(false);
-    }
-    if (readerBtn) {
-      readerBtn.classList.toggle('active', target);
-      readerBtn.setAttribute('aria-pressed', String(target));
-      readerBtn.textContent = target ? '✕ Έξοδος' : '📖 Ανάγνωση';
-      readerBtn.title = target
-        ? 'Έξοδος από Λειτουργία Ανάγνωσης (Esc / Alt+F)'
-        : 'Λειτουργία Ανάγνωσης — Πλήρης οθόνη ζωντανής προεπισκόπησης (Alt+F)';
-    }
-    if (target) {
-      window.__renderHybridPreview?.(true, false);
-    } else {
-      window.__focusActiveEditor?.();
-    }
-    updateNotepadEditorCaret(false);
-    if (window.parent !== window) {
-      try { window.parent.postMessage({ type: 'latex-panel-reader-mode', active: target }, '*'); } catch { }
-    }
-  };
-  window.__toggleNotepadReaderMode = setReaderMode;
   if (readerBtn) {
     on(readerBtn, 'mousedown', e => e.preventDefault(), false, sig);
-    on(readerBtn, 'click', () => setReaderMode(), false, sig);
+    on(readerBtn, 'click', () => {
+      window.__toggleNotepadReaderMode?.();
+    }, false, sig);
   }
 }

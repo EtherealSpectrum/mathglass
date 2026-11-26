@@ -6,9 +6,13 @@ import {
   computeCtrlArrowTarget,
   computeSmartLatexArrowTarget,
   computeTabJumpTarget,
+  computeWysiwygMathEdit,
+  computeWysiwygVerticalArrowTarget,
   extractAllMathRangesForNav,
   findPrecedingFractionOperandStart,
   replaceRangePreservingUndo,
+  skipInvisibleMathWhitespaceBack,
+  skipInvisibleMathWhitespaceForward,
 } from '../core/latex-nav.js';
 import {
   resolveLatexOffsetAtPoint,
@@ -31,8 +35,7 @@ import {
 } from './preview.js';
 import { wrappedCode, copyText, insertTextToPage } from './actions.js';
 
-let notepadOpen = false;
-let autoDollarWrap = true;
+let notepadOpen = true;
 let notepadPreviewNavActive = false;
 let pendingReaderNavScroll = false;
 let lastProgWrap = { left: -1, top: -1 };
@@ -56,7 +59,12 @@ const SEL_END_MARK = '\uFFF4SEL_E\uFFF5';
 const SEL_MARK_RE = /\uFFF4SEL_[SE]\uFFF5/g;
 
 export function isNotepadOpen() { return notepadOpen; }
-export function isAutoDollarWrapEnabled() { return autoDollarWrap; }
+export function isAutoDollarWrapEnabled() { return true; }
+
+function isWysiwygPreviewActive() {
+  const inReaderEdit = document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit');
+  return Boolean(inReaderEdit || (state.previewEditEnabled !== false && notepadPreviewNavActive));
+}
 
 const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
 
@@ -72,6 +80,70 @@ function findMathTokenAt(src, pos) {
     if (pos >= r.contentStart && pos <= r.contentEnd) return r;
   }
   return null;
+}
+
+function findMathTokenForRange(src, start, end) {
+  if (start === end) return findMathTokenAt(src, start);
+  const tokens = tokenizeHybridLatex(src);
+  for (const tok of tokens) {
+    if (tok.type === 'math' && start >= tok.start && end <= tok.end && start <= tok.contentEnd && end >= tok.contentStart) {
+      return tok;
+    }
+  }
+  return null;
+}
+
+function findCodeTokenAt(src, pos) {
+  const tokens = tokenizeHybridLatex(src);
+  for (const tok of tokens) {
+    if (tok.type === 'code' && pos >= tok.start && pos <= tok.end) return tok;
+  }
+  return null;
+}
+
+function unwrapOuterMathDelims(rawText) {
+  const trimmed = String(rawText || '').trim();
+  if (!trimmed) return rawText;
+  const pairs = [
+    ['$$', '$$'],
+    ['\\[', '\\]'],
+    ['\\(', '\\)'],
+    ['[latex]', '[/latex]'],
+    ['[tex]', '[/tex]'],
+    ['$', '$'],
+  ];
+  for (const [open, close] of pairs) {
+    if (trimmed.length >= open.length + close.length) {
+      const low = trimmed.toLowerCase();
+      if (low.startsWith(open) && low.endsWith(close)) {
+        const inner = trimmed.slice(open.length, trimmed.length - close.length);
+        if (!inner.includes(close)) return inner.trim();
+      }
+    }
+  }
+  return rawText;
+}
+
+function formatPasteForNotepadWysiwyg(plain, isInMath) {
+  const clean = String(plain || '').replace(/[\uFFF0-\uFFF5]/g, '');
+  if (!clean) return clean;
+  if (isInMath) {
+    return unwrapOuterMathDelims(clean);
+  }
+  const trimmed = clean.trim();
+  if (!trimmed) return clean;
+  if (/(?:\$[^$]+\$|\\\[[\s\S]+\\\]|\\\([\s\S]+\\\)|\[(?:tex|latex|code|b|i|u|s|img|url|hide|quote|list|table)\b)/i.test(trimmed)) {
+    return clean;
+  }
+  if (/^[A-Za-z]:\\/.test(trimmed)) return clean;
+  const hasKnownLatexCmd = /\\(?:frac|dfrac|tfrac|cfrac|sqrt|sum|prod|int|iint|oint|lim|infty|to|implies|iff|equiv|approx|neq|leq|geq|pm|mp|cdot|times|div|partial|nabla|forall|exists|nexists|in|notin|subset|subseteq|supset|supseteq|cup|cap|setminus|emptyset|varnothing|mathbb|mathcal|mathrm|mathbf|mathit|mathsf|text|vec|hat|bar|tilde|dot|ddot|overline|underline|widehat|widetilde|binom|left|right|sin|cos|tan|cot|sec|csc|ln|log|exp|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega|begin|end|neg|land|lor|top|bot|vdash|models|propto|sim|simeq|cong|parallel|perp|angle|triangle)\b/.test(trimmed);
+  const isPureFormula = /^\\[A-Za-z@]+(?:\s*(?:\[[^\]]*\]|\{[^}]*\}|[_^]\{?[^\s}]+\}?))*\s*$/.test(trimmed)
+    || (/^[A-Za-z0-9\\{}()\[\]^_+\-*/=<>.,|\s]+$/.test(trimmed) && (/[_^]\{/.test(trimmed) || /\\[A-Za-z@]{2,}/.test(trimmed)));
+  if (hasKnownLatexCmd || isPureFormula) {
+    const isDisplay = trimmed.includes('\n') || /\\begin\{|\\\\/.test(trimmed);
+    return isDisplay ? `$$${trimmed}$$` : `$${trimmed}$`;
+  }
+  return clean;
 }
 
 function getActiveCursorPos(ta) {
@@ -96,18 +168,22 @@ function notifyState() {
       settingsOpen: Boolean($('#settings-popup')?.classList.contains('active')),
       recentOpen: Boolean($('#recent-popup')?.classList.contains('active')),
       notepadOpen,
+      notepadViewMode: window.__getNotepadViewMode?.() || 'split',
     }, '*');
   } catch { }
 }
+window.__notifyPanelState = notifyState;
 
 export function setNotepadOpen(open) {
   notepadOpen = Boolean(open);
-  document.body.classList.toggle('notepad-open', notepadOpen);
   const btn = $('#notepad-toggle');
   if (btn) btn.classList.toggle('active', notepadOpen);
   if (notepadOpen) {
+    document.body.classList.add('notepad-open');
     $('#settings-popup')?.classList.remove('active');
     $('#recent-popup')?.classList.remove('active');
+    const restoreMode = window.__getLastNotepadViewMode?.() || 'wysiwyg';
+    window.__setNotepadViewMode?.(restoreMode, { silentFocus: false });
     renderHybridPreview(true, false);
     requestAnimationFrame(() => {
       const np = $('#notepad-input');
@@ -115,8 +191,16 @@ export function setNotepadOpen(open) {
       window.__refreshNotepadCaret?.();
     });
   } else {
+    window.__suspendNotepadViewModeForEditor?.();
+    document.body.classList.remove('notepad-open', 'notepad-reader-mode', 'notepad-reader-edit');
     window.__refreshNotepadCaret?.();
-    requestAnimationFrame(() => { const lx = $('#latex-input'); try { lx?.focus({ preventScroll: true }); } catch { lx?.focus(); } });
+    requestAnimationFrame(() => {
+      window.__renderPreview?.(false);
+      window.__refreshSyntaxHighlight?.();
+      window.__syncHighlightFont?.('latex-input');
+      const lx = $('#latex-input');
+      try { lx?.focus({ preventScroll: true }); } catch { lx?.focus(); }
+    });
   }
   notifyState();
 }
@@ -214,7 +298,27 @@ function scanLatexChunk(chunk, baseOffset, tokens) {
     }
 
     if (chunk[i] === '$' && chunk[i + 1] === '$') {
-      const end = findClosing(i + 2, '$$');
+      if (chunk.slice(i, i + 4) === '$$$$') {
+        flushText(i);
+        tokens.push({
+          type: 'math', display: true, content: '',
+          openDelim: '$$', closeDelim: '$$',
+          start: baseOffset + i, end: baseOffset + i + 4,
+          contentStart: baseOffset + i + 2, contentEnd: baseOffset + i + 2,
+        });
+        i += 4; continue;
+      }
+      const isFollowedByBreak = i + 2 >= n || /^[\s\r\n.,;:!?)\]\[]/.test(chunk[i + 2]);
+      let ddCount = 0;
+      if (isFollowedByBreak) {
+        let p = i;
+        while (p < n) {
+          if (chunk[p] === '\\') { p += 2; continue; }
+          if (chunk[p] === '$' && chunk[p + 1] === '$') { ddCount++; p += 2; continue; }
+          p++;
+        }
+      }
+      const end = (isFollowedByBreak && (ddCount % 2) === 1) ? -1 : findClosing(i + 2, '$$');
       if (end !== -1) {
         flushText(i);
         tokens.push({
@@ -224,6 +328,16 @@ function scanLatexChunk(chunk, baseOffset, tokens) {
           contentStart: baseOffset + i + 2, contentEnd: baseOffset + end,
         });
         i = end + 2; continue;
+      }
+      if (isFollowedByBreak) {
+        flushText(i);
+        tokens.push({
+          type: 'math', display: false, content: '', emptyInline: true,
+          openDelim: '$', closeDelim: '$',
+          start: baseOffset + i, end: baseOffset + i + 2,
+          contentStart: baseOffset + i + 1, contentEnd: baseOffset + i + 1,
+        });
+        i += 2; continue;
       }
     }
 
@@ -335,7 +449,7 @@ export function isCursorInsideKaTeX(input, cursorPos) {
     if (chunk[i] === '\\' && chunk[i + 1] === '$') { i += 2; continue; }
     if (chunk[i] === '[' && chunk.slice(i, i + 5).toLowerCase() === '[tex]' && localPos >= i + 5) return true;
     if (chunk[i] === '[' && chunk.slice(i, i + 7).toLowerCase() === '[latex]' && localPos >= i + 7) return true;
-    if (chunk[i] === '$' && chunk[i + 1] === '$' && localPos >= i + 2) return true;
+    if (chunk[i] === '$' && chunk[i + 1] === '$' && localPos >= i + 1) return true;
     if (chunk[i] === '\\' && chunk[i + 1] === '[' && localPos >= i + 2) return true;
     if (chunk[i] === '\\' && chunk[i + 1] === '(' && localPos >= i + 2) return true;
     if (chunk[i] === '$' && chunk[i + 1] !== '$' && localPos >= i + 1 && !chunk.slice(i + 1, localPos).includes('\n\n')) return true;
@@ -504,9 +618,13 @@ export function renderPhpbbHtml(input, isLight, options = {}) {
     } else {
       const idx = slots.length;
       const inner = tok.content.trim();
-      const rendered = inner
-        ? renderSingleMathInner(tok.content, tok.display, isLight, null)
-        : escHtml((tok.openDelim || '$') + (tok.closeDelim || '$'));
+      let rendered;
+      if (inner) {
+        rendered = renderSingleMathInner(tok.content, tok.display, isLight, null);
+      } else {
+        const showEmptyCaret = !hasSelection && trackCursor && typeof caretOffset === 'number' && caretOffset >= tok.contentStart && caretOffset <= tok.contentEnd;
+        rendered = `<span class="np-math-empty-box" aria-label="Κενή εξίσωση">${showEmptyCaret ? CARET_MARK : '\u200b'}</span>`;
+      }
 
       const attrs = `data-np-start="${tok.start}" data-np-end="${tok.end}" data-np-cstart="${tok.contentStart}" data-np-cend="${tok.contentEnd}" data-np-display="${tok.display ? '1' : '0'}"`;
       slots.push(
@@ -1012,12 +1130,12 @@ function updateNotepadCursorTracking(shouldScroll = false) {
     const ce = Number(matchedMath.getAttribute('data-np-cend'));
     const rawMath = src.slice(cs, ce);
     const prevMathLeft = matchedMath.scrollLeft;
+    const showPreviewCaret = state.previewCaretEnabled !== false;
     if (rawMath.trim()) {
       if (!cleanMathHtmlMap.has(matchedMath)) {
         cleanMathHtmlMap.set(matchedMath, matchedMath.innerHTML);
       }
       const disp = matchedMath.getAttribute('data-np-display') === '1';
-      const showPreviewCaret = state.previewCaretEnabled !== false;
       const themeTag = isLight ? 'L' : 'D';
       const canSkipInnerRender = !showPreviewCaret
         && matchedMath === activeMathEl
@@ -1041,6 +1159,11 @@ function updateNotepadCursorTracking(shouldScroll = false) {
       }
     } else {
       clearActiveSlotHighlight(matchedMath);
+      if (!cleanMathHtmlMap.has(matchedMath)) {
+        cleanMathHtmlMap.set(matchedMath, matchedMath.innerHTML);
+      }
+      matchedMath.innerHTML = `<span class="np-math-empty-box" aria-label="Κενή εξίσωση">${showPreviewCaret ? '<span class="mg-np-text-caret" aria-hidden="true"></span>' : '\u200b'}</span>`;
+      caretEl = showPreviewCaret ? matchedMath.querySelector('.mg-np-text-caret') : null;
     }
     matchedMath.classList.add('np-math-active');
     activeMathEl = matchedMath;
@@ -1170,8 +1293,8 @@ export function renderHybridPreview(force = false, shouldScroll = false) {
   try {
     const showPreviewCaret = state.previewCaretEnabled !== false;
     if (!src.trim()) {
-      const inReaderEdit = document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit');
-      previewEl.innerHTML = (inReaderEdit && showPreviewCaret ? '<span class="mg-np-text-caret" aria-hidden="true"></span>' : '') +
+      const wysiwygEmpty = isWysiwygPreviewActive();
+      previewEl.innerHTML = (wysiwygEmpty && showPreviewCaret ? '<span class="mg-np-text-caret" aria-hidden="true"></span>' : '') +
         '<span class="np-placeholder">Η υβριδική προεπισκόπηση (phpBB + KaTeX) θα εμφανιστεί εδώ…</span>';
     } else {
       previewEl.innerHTML = renderPhpbbHtml(src, isLight, {
@@ -1229,13 +1352,6 @@ function wrapInNotepad(before, after, fallback = '') {
   set(KEYS.notepadText, ta.value);
 }
 
-function clearBbcode(input) {
-  return input
-    .replace(/\[\/?(?:b|i|u|s|quote|code|list|img|url|size|color|center|ggb|hide|table|tr|th|td)(?:=[^\]]*)?\]/gi, '')
-    .replace(/\[\*\]\s*/g, '• ')
-    .replace(/^#{1,6}\s+/gm, '');
-}
-
 export function init(ac) {
   const sig = ac.signal;
   const ta = $('#notepad-input');
@@ -1245,36 +1361,43 @@ export function init(ac) {
   const rz = $('#notepad-resizer');
   if (!ta || !pvOuter) return;
 
+  window.__setNotepadOpen = setNotepadOpen;
   window.__renderHybridPreview = (force = false, shouldScroll = false) => renderHybridPreview(force, shouldScroll);
   window.__setNotepadPreviewNav = active => {
-    notepadPreviewNavActive = Boolean(active && state.intuitiveNavEnabled);
+    notepadPreviewNavActive = Boolean(active && state.previewEditEnabled !== false);
     window.__syncNavIndicators?.();
   };
-  window.__isNotepadPreviewNavActive = () => Boolean(state.intuitiveNavEnabled && notepadPreviewNavActive);
+  window.__isNotepadPreviewNavActive = () => Boolean(state.previewEditEnabled !== false && notepadPreviewNavActive);
+
   let pendingScroll = false;
-  const flushRender = rafThrottle(() => {
+  let renderDebounceTimer = null;
+  const flushRenderNow = () => {
+    clearTimeout(renderDebounceTimer);
+    renderDebounceTimer = null;
     const shouldScroll = pendingScroll && Boolean(state.previewFollowEnabled);
     pendingScroll = false;
     renderHybridPreview(false, shouldScroll);
-  });
+  };
+  const rafRender = rafThrottle(flushRenderNow);
+  const scheduleHybridRender = (immediate = false, forceChar = '') => {
+    if (immediate || forceChar === '$' || forceChar === '}' || forceChar === '\n' || forceChar === ' ') {
+      rafRender();
+      return;
+    }
+    const len = (ta.value || '').length;
+    if (len <= 1800) {
+      rafRender();
+      return;
+    }
+    clearTimeout(renderDebounceTimer);
+    renderDebounceTimer = setTimeout(flushRenderNow, 55);
+  };
+
   let saveTimer = null;
   const scheduleSave = () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => set(KEYS.notepadText, ta.value), 200);
   };
-
-  const autoDollarBtn = $('#notepad-auto-dollar-btn');
-  const syncAutoDollarBtn = () => {
-    if (!autoDollarBtn) return;
-    autoDollarBtn.classList.toggle('active', autoDollarWrap);
-    autoDollarBtn.setAttribute('aria-pressed', String(autoDollarWrap));
-    autoDollarBtn.title = autoDollarWrap
-      ? 'Αυτόματο $...$: ΕΝΕΡΓΟ — Όταν ο κέρσορας είναι εκτός εξίσωσης ($...$, $$...$$, [tex]...[/tex]), τα σύμβολα της εργαλειοθήκης KaTeX περιβάλλονται αυτόματα με $...$ (Alt+4)'
-      : 'Αυτόματο $...$: ΑΝΕΝΕΡΓΟ — Κλικ για αυτόματο περιτύλιγμα με $...$ στα σύμβολα της εργαλειοθήκης KaTeX όταν γράφετε εκτός εξίσωσης (Alt+4)';
-  };
-  const cachedAd = mirrorGet(KEYS.notepadAutoDollar, 'bool');
-  if (typeof cachedAd === 'boolean') autoDollarWrap = cachedAd;
-  syncAutoDollarBtn();
 
   const applySavedNotepadWidth = w => {
     if (!(typeof w === 'number' && w >= 120)) return;
@@ -1284,11 +1407,22 @@ export function init(ac) {
     document.documentElement.style.setProperty('--notepad-preview-width', clamped + 'px');
   };
 
-  get([KEYS.notepadText, KEYS.notepadWidth, KEYS.notepadAutoDollar]).then(r => {
-    if (typeof r[KEYS.notepadAutoDollar] === 'boolean') {
-      autoDollarWrap = r[KEYS.notepadAutoDollar];
-      syncAutoDollarBtn();
-    }
+  const applySavedNotepadBottomHeight = h => {
+    if (!(typeof h === 'number' && h >= 100)) return;
+    const bodyEl = $('.notepad-body');
+    const maxH = Math.max(140, (bodyEl?.clientHeight || innerHeight) - 120);
+    const clamped = clamp(Math.round(h), 110, maxH);
+    document.documentElement.style.setProperty('--notepad-bottom-height', clamped + 'px');
+  };
+
+  window.__applySavedNotepadDimensions = () => {
+    const w = mirrorGet(KEYS.notepadWidth, 'num');
+    if (typeof w === 'number' && w >= 120) applySavedNotepadWidth(w);
+    const bh = mirrorGet(KEYS.notepadBottomHeight, 'num');
+    if (typeof bh === 'number' && bh >= 100) applySavedNotepadBottomHeight(bh);
+  };
+
+  get([KEYS.notepadText, KEYS.notepadWidth, KEYS.notepadBottomHeight]).then(r => {
     if (typeof r[KEYS.notepadText] === 'string' && !ta.value) {
       ta.value = r[KEYS.notepadText];
       renderHybridPreview(true, false);
@@ -1298,22 +1432,16 @@ export function init(ac) {
     if (typeof r[KEYS.notepadWidth] === 'number') {
       applySavedNotepadWidth(r[KEYS.notepadWidth]);
     }
+    if (typeof r[KEYS.notepadBottomHeight] === 'number') {
+      applySavedNotepadBottomHeight(r[KEYS.notepadBottomHeight]);
+    }
   });
-
-  if (autoDollarBtn) {
-    on(autoDollarBtn, 'click', () => {
-      autoDollarWrap = !autoDollarWrap;
-      syncAutoDollarBtn();
-      set(KEYS.notepadAutoDollar, autoDollarWrap);
-    }, false, sig);
-  }
 
   let skipAutoWrapOnce = false;
   let suppressAutoWrapInputScroll = false;
 
   const maybeAutoWrapUnbracedSlot = () => {
-    const inReaderEdit = document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit');
-    if (!inReaderEdit) return false;
+    if (!isWysiwygPreviewActive()) return false;
     if (skipAutoWrapOnce) {
       skipAutoWrapOnce = false;
       return false;
@@ -1351,12 +1479,13 @@ export function init(ac) {
     return true;
   };
 
-  on(ta, 'input', () => {
+  on(ta, 'input', e => {
     if (suppressAutoWrapInputScroll) return;
     const follow = Boolean(state.previewFollowEnabled);
     if (follow) state.notepadUserScrolled = false;
     pendingScroll = follow;
-    flushRender();
+    const typed = typeof e?.data === 'string' ? e.data.slice(-1) : '';
+    scheduleHybridRender(false, typed);
     scheduleSave();
   }, false, sig);
 
@@ -1414,7 +1543,7 @@ export function init(ac) {
   }, false, sig);
 
   on(ta, 'keydown', e => {
-    const inReaderEdit = document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit');
+    const wysiwygActive = isWysiwygPreviewActive();
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
       skipAutoWrapOnce = true;
     }
@@ -1424,36 +1553,263 @@ export function init(ac) {
     }
 
     const val = ta.value || '';
+    const s = ta.selectionStart ?? val.length;
+    const en = ta.selectionEnd ?? s;
+    const selText = val.slice(s, en);
     const caretPos = getActiveCursorPos(ta);
-    const inMath = isCursorInsideKaTeX(val, caretPos);
-    const mathTok = inMath ? findMathTokenAt(val, caretPos) : null;
     const isAltGr = e.ctrlKey && e.altKey && !e.metaKey;
     const noMod = !e.ctrlKey && !e.metaKey && !e.altKey;
 
-    if (inReaderEdit && mathTok && (noMod || isAltGr)) {
-      const s = ta.selectionStart ?? val.length;
-      const en = ta.selectionEnd ?? s;
-      const sel = val.slice(s, en);
+    if (e.key === '$' && (noMod || isAltGr) && !isEscapedAt(val, s) && !findCodeTokenAt(val, s)) {
+      const mathAtS = findMathTokenAt(val, s);
+      if (s === en && mathAtS) {
+        if (mathAtS.emptyInline && s === mathAtS.contentStart) {
+          e.preventDefault();
+          replaceRangePreservingUndo(ta, mathAtS.start, mathAtS.end, '$$$$', mathAtS.start + 2, mathAtS.start + 2);
+          const follow = Boolean(state.previewFollowEnabled);
+          if (follow) state.notepadUserScrolled = false;
+          pendingScroll = follow;
+          scheduleHybridRender(true);
+          window.__refreshSyntaxHighlight?.();
+          window.__refreshNotepadCaret?.();
+          scheduleSave();
+          return;
+        }
+        if (val[s] === '$') {
+          e.preventDefault();
+          const step = (mathAtS.closeDelim === '$$' && val[s + 1] === '$') ? 2 : 1;
+          ta.setSelectionRange(s + step, s + step);
+          if (state.previewFollowEnabled) {
+            state.notepadUserScrolled = false;
+            pendingReaderNavScroll = true;
+          }
+          lastCursorPos = -1;
+          syncCursorMove();
+          window.__refreshNotepadCaret?.();
+          return;
+        }
+      } else if (!mathAtS) {
+        e.preventDefault();
+        if (en > s) {
+          const delim = (selText.includes('\n') || /\\begin\{|\\\\/.test(selText)) ? '$$' : '$';
+          replaceRangePreservingUndo(ta, s, en, `${delim}${selText}${delim}`, s + delim.length, s + delim.length + selText.length);
+        } else {
+          replaceRangePreservingUndo(ta, s, s, '$$', s + 1, s + 1);
+        }
+        const follow = Boolean(state.previewFollowEnabled);
+        if (follow) state.notepadUserScrolled = false;
+        pendingScroll = follow;
+        scheduleHybridRender(true);
+        window.__refreshSyntaxHighlight?.();
+        window.__refreshNotepadCaret?.();
+        scheduleSave();
+        return;
+      }
+    }
+
+    if (noMod && (e.key === 'Backspace' || e.key === 'Delete')) {
+      const moveCaretInMath = target => {
+        ta.setSelectionRange(target, target);
+        if (state.previewFollowEnabled) {
+          state.notepadUserScrolled = false;
+          pendingReaderNavScroll = true;
+        }
+        lastCursorPos = -1;
+        syncCursorMove();
+        window.__ensureNotepadCaretVisible?.();
+        window.__refreshNotepadCaret?.();
+      };
+      const applyMathDeletionResult = (tok, res, fallbackStart, fallbackEnd) => {
+        if (res && res.kind === 'move') {
+          e.preventDefault();
+          moveCaretInMath(res.caret);
+          return true;
+        }
+        const rStart = res ? res.start : fallbackStart;
+        const rEnd = res ? res.end : fallbackEnd;
+        const rText = res ? res.text : '';
+        const rCaret = res ? res.caret : rStart;
+        if (rStart >= tok.contentStart && rEnd <= tok.contentEnd && (rEnd > rStart || rText.length > 0)) {
+          const rem = (val.slice(tok.contentStart, rStart) + rText + val.slice(rEnd, tok.contentEnd)).trim();
+          if (!rem) {
+            e.preventDefault();
+            if (wysiwygActive) {
+              replaceRangePreservingUndo(ta, tok.contentStart, tok.contentEnd, '', tok.contentStart, tok.contentStart);
+            } else {
+              replaceRangePreservingUndo(ta, tok.start, tok.end, '', tok.start, tok.start);
+            }
+            const follow = Boolean(state.previewFollowEnabled);
+            if (follow) state.notepadUserScrolled = false;
+            pendingScroll = follow;
+            scheduleHybridRender(true);
+            window.__refreshSyntaxHighlight?.();
+            window.__refreshNotepadCaret?.();
+            scheduleSave();
+            return true;
+          }
+          if (res || fallbackStart !== (e.key === 'Backspace' ? s - 1 : s) || fallbackEnd !== (e.key === 'Backspace' ? s : s + 1)) {
+            e.preventDefault();
+            replaceRangePreservingUndo(ta, rStart, rEnd, rText, rCaret, rCaret);
+            const follow = Boolean(state.previewFollowEnabled);
+            if (follow) state.notepadUserScrolled = false;
+            pendingScroll = follow;
+            scheduleHybridRender();
+            window.__refreshSyntaxHighlight?.();
+            window.__refreshNotepadCaret?.();
+            scheduleSave();
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const delMath = findMathTokenForRange(val, s, en);
+      if (delMath) {
+        if (!delMath.content.trim() && s >= delMath.contentStart && en <= delMath.contentEnd) {
+          e.preventDefault();
+          replaceRangePreservingUndo(ta, delMath.start, delMath.end, '', delMath.start, delMath.start);
+          const follow = Boolean(state.previewFollowEnabled);
+          if (follow) state.notepadUserScrolled = false;
+          pendingScroll = follow;
+          scheduleHybridRender(true);
+          window.__refreshSyntaxHighlight?.();
+          window.__refreshNotepadCaret?.();
+          scheduleSave();
+          return;
+        }
+        if (en > s && s >= delMath.contentStart && en <= delMath.contentEnd) {
+          const rem = (val.slice(delMath.contentStart, s) + val.slice(en, delMath.contentEnd)).trim();
+          if (!rem) {
+            e.preventDefault();
+            if (wysiwygActive) {
+              replaceRangePreservingUndo(ta, delMath.contentStart, delMath.contentEnd, '', delMath.contentStart, delMath.contentStart);
+            } else {
+              replaceRangePreservingUndo(ta, delMath.start, delMath.end, '', delMath.start, delMath.start);
+            }
+            const follow = Boolean(state.previewFollowEnabled);
+            if (follow) state.notepadUserScrolled = false;
+            pendingScroll = follow;
+            scheduleHybridRender(true);
+            window.__refreshSyntaxHighlight?.();
+            window.__refreshNotepadCaret?.();
+            scheduleSave();
+            return;
+          }
+        } else if (s === en) {
+          if (wysiwygActive) {
+            if (e.key === 'Backspace' && skipInvisibleMathWhitespaceBack(val, delMath.contentStart, s, delMath.contentEnd) <= delMath.contentStart) {
+              e.preventDefault();
+              moveCaretInMath(delMath.start);
+              return;
+            }
+            if (e.key === 'Delete' && skipInvisibleMathWhitespaceForward(val, s, delMath.contentEnd, delMath.contentStart) >= delMath.contentEnd) {
+              e.preventDefault();
+              moveCaretInMath(delMath.end);
+              return;
+            }
+            const res = computeWysiwygMathEdit(val, s, e.key, delMath.contentStart, delMath.contentEnd);
+            const fbS = e.key === 'Backspace' ? s - 1 : s;
+            const fbE = e.key === 'Backspace' ? s : s + 1;
+            if (applyMathDeletionResult(delMath, res, fbS, fbE)) return;
+          } else {
+            const delStart = e.key === 'Backspace' ? s - 1 : s;
+            const delEnd = e.key === 'Backspace' ? s : s + 1;
+            if (delStart >= delMath.contentStart && delEnd <= delMath.contentEnd && delEnd > delStart) {
+              const rem = (val.slice(delMath.contentStart, delStart) + val.slice(delEnd, delMath.contentEnd)).trim();
+              if (!rem) {
+                e.preventDefault();
+                replaceRangePreservingUndo(ta, delMath.start, delMath.end, '', delMath.start, delMath.start);
+                const follow = Boolean(state.previewFollowEnabled);
+                if (follow) state.notepadUserScrolled = false;
+                pendingScroll = follow;
+                scheduleHybridRender(true);
+                window.__refreshSyntaxHighlight?.();
+                window.__refreshNotepadCaret?.();
+                scheduleSave();
+                return;
+              }
+            }
+          }
+        }
+      } else if (wysiwygActive && s === en) {
+        const tokens = tokenizeHybridLatex(val);
+        if (e.key === 'Backspace') {
+          const edgeTok = tokens.find(t => t.type === 'math' && s === t.end);
+          if (edgeTok) {
+            if (!edgeTok.content.trim()) {
+              e.preventDefault();
+              replaceRangePreservingUndo(ta, edgeTok.start, edgeTok.end, '', edgeTok.start, edgeTok.start);
+              const follow = Boolean(state.previewFollowEnabled);
+              if (follow) state.notepadUserScrolled = false;
+              pendingScroll = follow;
+              scheduleHybridRender(true);
+              window.__refreshSyntaxHighlight?.();
+              window.__refreshNotepadCaret?.();
+              scheduleSave();
+              return;
+            }
+            const res = computeWysiwygMathEdit(val, edgeTok.contentEnd, 'Backspace', edgeTok.contentStart, edgeTok.contentEnd);
+            let fbS = Math.max(edgeTok.contentStart, edgeTok.contentEnd - 1);
+            if (fbS > edgeTok.contentStart && val.charCodeAt(fbS) >= 0xDC00 && val.charCodeAt(fbS) <= 0xDFFF) {
+              fbS--;
+            }
+            if (applyMathDeletionResult(edgeTok, res, fbS, edgeTok.contentEnd)) return;
+          }
+        } else if (e.key === 'Delete') {
+          const edgeTok = tokens.find(t => t.type === 'math' && s === t.start);
+          if (edgeTok) {
+            if (!edgeTok.content.trim()) {
+              e.preventDefault();
+              replaceRangePreservingUndo(ta, edgeTok.start, edgeTok.end, '', edgeTok.start, edgeTok.start);
+              const follow = Boolean(state.previewFollowEnabled);
+              if (follow) state.notepadUserScrolled = false;
+              pendingScroll = follow;
+              scheduleHybridRender(true);
+              window.__refreshSyntaxHighlight?.();
+              window.__refreshNotepadCaret?.();
+              scheduleSave();
+              return;
+            }
+            const res = computeWysiwygMathEdit(val, edgeTok.contentStart, 'Delete', edgeTok.contentStart, edgeTok.contentEnd);
+            let fbE = Math.min(edgeTok.contentEnd, edgeTok.contentStart + 1);
+            if (fbE < edgeTok.contentEnd && val.charCodeAt(edgeTok.contentStart) >= 0xD800 && val.charCodeAt(edgeTok.contentStart) <= 0xDBFF) {
+              fbE++;
+            }
+            if (applyMathDeletionResult(edgeTok, res, edgeTok.contentStart, fbE)) return;
+          }
+        }
+      }
+    }
+
+    const inMath = isCursorInsideKaTeX(val, caretPos);
+    const mathTok = inMath ? findMathTokenAt(val, caretPos) : null;
+
+    if (wysiwygActive && mathTok && (noMod || isAltGr)) {
       if (e.key === '/' && !isEscapedAt(val, s)) {
         e.preventDefault();
         if (en > s) {
-          const ins = `\\frac{${sel}}{}`;
-          replaceRangePreservingUndo(ta, s, en, ins, s + 6 + sel.length + 2, s + 6 + sel.length + 2);
+          const ins = `\\dfrac{${selText}}{}`;
+          replaceRangePreservingUndo(ta, s, en, ins, s + 7 + selText.length + 2, s + 7 + selText.length + 2);
         } else {
           const { opStart, stripParens } = findPrecedingFractionOperandStart(val, mathTok.contentStart, s);
           if (opStart < s) {
             let num = val.slice(opStart, s);
-            if (stripParens && num.startsWith('(') && num.endsWith(')')) num = num.slice(1, -1);
-            const ins = `\\frac{${num}}{}`;
-            replaceRangePreservingUndo(ta, opStart, s, ins, opStart + 6 + num.length + 2, opStart + 6 + num.length + 2);
+            if (stripParens) {
+              if (num.startsWith('\\left(') && num.endsWith('\\right)')) num = num.slice(6, -7).trim();
+              else if (num.startsWith('(') && num.endsWith(')')) num = num.slice(1, -1);
+            }
+            const ins = `\\dfrac{${num}}{}`;
+            replaceRangePreservingUndo(ta, opStart, s, ins, opStart + 7 + num.length + 2, opStart + 7 + num.length + 2);
           } else {
-            replaceRangePreservingUndo(ta, s, s, '\\frac{}{}', s + 6, s + 6);
+            replaceRangePreservingUndo(ta, s, s, '\\dfrac{}{}', s + 7, s + 7);
           }
         }
         const follow = Boolean(state.previewFollowEnabled);
         if (follow) state.notepadUserScrolled = false;
         pendingScroll = follow;
-        flushRender();
+        scheduleHybridRender();
+        window.__refreshSyntaxHighlight?.();
+        window.__refreshNotepadCaret?.();
         scheduleSave();
         return;
       }
@@ -1463,64 +1819,25 @@ export function init(ac) {
         const follow = Boolean(state.previewFollowEnabled);
         if (follow) state.notepadUserScrolled = false;
         pendingScroll = follow;
-        flushRender();
-        scheduleSave();
-        return;
-      }
-    }
-
-    if ((state.autoBracesEnabled || inReaderEdit) && inMath && (noMod || isAltGr)) {
-      const s = ta.selectionStart ?? val.length;
-      const en = ta.selectionEnd ?? s;
-      const sel = val.slice(s, en);
-
-      if ((e.key === '^' || e.key === '_') && !isEscapedAt(val, s) && (sel.length > 0 || val[s] !== '{')) {
-        e.preventDefault();
-        const ins = `${e.key}{${sel}}`;
-        replaceRangePreservingUndo(ta, s, en, ins, s + 2, s + 2 + sel.length);
-        const follow = Boolean(state.previewFollowEnabled);
-        if (follow) state.notepadUserScrolled = false;
-        pendingScroll = follow;
-        flushRender();
-        scheduleSave();
-        return;
-      }
-    }
-
-    if (state.autoBracesEnabled && inMath && (noMod || isAltGr)) {
-      const s = ta.selectionStart ?? val.length;
-      const en = ta.selectionEnd ?? s;
-      const sel = val.slice(s, en);
-
-      if (e.key === '{' && !isEscapedAt(val, s)) {
-        e.preventDefault();
-        replaceRangePreservingUndo(ta, s, en, `{${sel}}`, s + 1, s + 1 + sel.length);
-        const follow = Boolean(state.previewFollowEnabled);
-        if (follow) state.notepadUserScrolled = false;
-        pendingScroll = follow;
-        flushRender();
-        scheduleSave();
-        return;
-      }
-      if (e.key === '}' && s === en && val[s] === '}' && !isEscapedAt(val, s)) {
-        e.preventDefault();
-        ta.setSelectionRange(s + 1, s + 1);
-        if (state.previewFollowEnabled) {
-          state.notepadUserScrolled = false;
-          pendingReaderNavScroll = true;
-        }
-        lastCursorPos = -1;
-        syncCursorMove();
+        scheduleHybridRender();
+        window.__refreshSyntaxHighlight?.();
         window.__refreshNotepadCaret?.();
+        scheduleSave();
         return;
       }
-      if (noMod && e.key === 'Backspace' && s === en && s > 0 && val[s - 1] === '{' && val[s] === '}' && !isEscapedAt(val, s - 1)) {
+    }
+
+    if ((state.autoBracesEnabled || wysiwygActive) && inMath && (noMod || isAltGr)) {
+      if ((e.key === '^' || e.key === '_') && !isEscapedAt(val, s) && (selText.length > 0 || val[s] !== '{')) {
         e.preventDefault();
-        replaceRangePreservingUndo(ta, s - 1, s + 1, '', s - 1, s - 1);
+        const ins = `${e.key}{${selText}}`;
+        replaceRangePreservingUndo(ta, s, en, ins, s + 2, s + 2 + selText.length);
         const follow = Boolean(state.previewFollowEnabled);
         if (follow) state.notepadUserScrolled = false;
         pendingScroll = follow;
-        flushRender();
+        scheduleHybridRender();
+        window.__refreshSyntaxHighlight?.();
+        window.__refreshNotepadCaret?.();
         scheduleSave();
         return;
       }
@@ -1547,9 +1864,62 @@ export function init(ac) {
       }
     }
 
-    if (state.intuitiveNavEnabled && notepadPreviewNavActive && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-      const s = ta.selectionStart ?? 0;
-      const en = ta.selectionEnd ?? s;
+    if (state.autoBracesEnabled && inMath && (noMod || isAltGr)) {
+      if (e.key === '{' && !isEscapedAt(val, s)) {
+        e.preventDefault();
+        replaceRangePreservingUndo(ta, s, en, `{${selText}}`, s + 1, s + 1 + selText.length);
+        const follow = Boolean(state.previewFollowEnabled);
+        if (follow) state.notepadUserScrolled = false;
+        pendingScroll = follow;
+        scheduleHybridRender();
+        window.__refreshSyntaxHighlight?.();
+        window.__refreshNotepadCaret?.();
+        scheduleSave();
+        return;
+      }
+      if (e.key === '}' && s === en && val[s] === '}' && !isEscapedAt(val, s)) {
+        e.preventDefault();
+        ta.setSelectionRange(s + 1, s + 1);
+        if (state.previewFollowEnabled) {
+          state.notepadUserScrolled = false;
+          pendingReaderNavScroll = true;
+        }
+        lastCursorPos = -1;
+        syncCursorMove();
+        window.__refreshNotepadCaret?.();
+        return;
+      }
+      if (noMod && e.key === 'Backspace' && s === en && s > 0 && val[s - 1] === '{' && val[s] === '}' && !isEscapedAt(val, s - 1)) {
+        e.preventDefault();
+        replaceRangePreservingUndo(ta, s - 1, s + 1, '', s - 1, s - 1);
+        const follow = Boolean(state.previewFollowEnabled);
+        if (follow) state.notepadUserScrolled = false;
+        pendingScroll = follow;
+        scheduleHybridRender();
+        window.__refreshSyntaxHighlight?.();
+        window.__refreshNotepadCaret?.();
+        scheduleSave();
+        return;
+      }
+    }
+
+    if (wysiwygActive && mathTok && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      if (s === en) {
+        const dir = e.key === 'ArrowDown' ? 1 : -1;
+        const target = computeWysiwygVerticalArrowTarget(val, s, dir, mathTok.contentStart, mathTok.contentEnd);
+        if (target !== null && target !== s) {
+          e.preventDefault();
+          ta.setSelectionRange(target, target);
+          lastCursorPos = -1;
+          syncCursorMove();
+          window.__ensureNotepadCaretVisible?.();
+          window.__refreshNotepadCaret?.();
+          return;
+        }
+      }
+    }
+
+    if (wysiwygActive && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       if (e.shiftKey || s === en) {
         const dir = e.key === 'ArrowRight' ? 1 : -1;
         const curPos = getActiveCursorPos(ta);
@@ -1598,6 +1968,30 @@ export function init(ac) {
     }
   }, false, sig);
 
+  on(ta, 'paste', e => {
+    const plain = e.clipboardData?.getData('text/plain');
+    if (typeof plain !== 'string' || !plain) return;
+    const val = ta.value || '';
+    const s = ta.selectionStart ?? val.length;
+    const en = ta.selectionEnd ?? s;
+    const inCode = Boolean(findCodeTokenAt(val, s));
+    if (inCode) return;
+    const inMath = isCursorInsideKaTeX(val, s);
+    const transformed = isWysiwygPreviewActive()
+      ? formatPasteForNotepadWysiwyg(plain, inMath)
+      : plain.replace(/[\uFFF0-\uFFF5]/g, '');
+    if (transformed === plain) return;
+    e.preventDefault();
+    replaceRangePreservingUndo(ta, s, en, transformed, s + transformed.length, s + transformed.length);
+    const follow = Boolean(state.previewFollowEnabled);
+    if (follow) state.notepadUserScrolled = false;
+    pendingScroll = follow;
+    scheduleHybridRender(true);
+    window.__refreshSyntaxHighlight?.();
+    window.__refreshNotepadCaret?.();
+    scheduleSave();
+  }, false, sig);
+
   on(ta, 'keyup', syncCursorMove, false, sig);
   on(ta, 'mouseup', syncCursorMove, false, sig);
   on(ta, 'click', syncCursorMove, false, sig);
@@ -1618,6 +2012,7 @@ export function init(ac) {
         const ce = Number(mathEl.getAttribute('data-np-cend'));
         const disp = mathEl.getAttribute('data-np-display') === '1';
         const rawMath = src.slice(cs, ce);
+        if (!rawMath.trim()) return { pos: clamp(cs, 0, src.length), mathEl };
         const localOff = resolveLatexOffsetAtPoint(rawMath, clientX, clientY, mathEl, {
           displayMode: disp,
           alignLeft: false,
@@ -1632,12 +2027,125 @@ export function init(ac) {
       return { pos: resolvePlainClickOffset(previewEl, src, clientX, clientY, target), mathEl: null };
     };
 
+    const resolveDomBoundaryToSourceOffset = (src, targetNode, targetOffset, isEnd, rectHint, isLight) => {
+      if (!targetNode || !previewEl.contains(targetNode)) return isEnd ? src.length : 0;
+      const elNode = targetNode.nodeType === Node.ELEMENT_NODE ? targetNode : targetNode.parentElement;
+      const mathEl = elNode?.closest?.('.np-math-display[data-np-cstart][data-np-cend], .np-math-inline[data-np-cstart][data-np-cend]');
+      if (mathEl && previewEl.contains(mathEl)) {
+        const tokStart = Number(mathEl.getAttribute('data-np-start'));
+        const tokEnd = Number(mathEl.getAttribute('data-np-end'));
+        const cs = Number(mathEl.getAttribute('data-np-cstart'));
+        const ce = Number(mathEl.getAttribute('data-np-cend'));
+        const disp = mathEl.getAttribute('data-np-display') === '1';
+        const rawMath = src.slice(cs, ce);
+        if (!rawMath.trim()) return clamp(isEnd ? tokEnd : tokStart, 0, src.length);
+
+        const kEl = mathEl.querySelector('.katex-html') || mathEl.querySelector('.katex') || mathEl;
+        const kRect = kEl.getBoundingClientRect();
+        if (rectHint && kRect.width > 2) {
+          if (!isEnd && rectHint.left <= kRect.left + 3) return clamp(cs, 0, src.length);
+          if (isEnd && rectHint.right >= kRect.right - 3) return clamp(ce, 0, src.length);
+          const x = isEnd ? (rectHint.right - 1) : (rectHint.left + 1);
+          const y = (rectHint.top + rectHint.bottom) / 2;
+          const localOff = resolveLatexOffsetAtPoint(rawMath, x, y, mathEl, {
+            displayMode: disp,
+            alignLeft: false,
+            isLight,
+            clickTarget: kEl,
+            buildBalancedCandidate,
+            injectLatexCaret,
+            findCaretElement,
+          });
+          return clamp(cs + localOff, 0, src.length);
+        }
+        return clamp(isEnd ? ce : cs, 0, src.length);
+      }
+
+      const preEl = elNode?.closest?.('pre.phpbb-code[data-np-start][data-np-end]');
+      if (preEl && previewEl.contains(preEl)) {
+        const tokStart = Number(preEl.getAttribute('data-np-start'));
+        const tokEnd = Number(preEl.getAttribute('data-np-end'));
+        const rawInner = src.slice(tokStart + 6, tokEnd - 7);
+        const leadWs = rawInner.length - rawInner.trimStart().length;
+        const charOff = getTextOffsetInElement(preEl, targetNode, targetOffset);
+        return clamp(tokStart + 6 + leadWs + charOff, tokStart, tokEnd);
+      }
+
+      let basePos = 0;
+      let delta = '';
+      let done = false;
+      let fixedResult = null;
+      const walk = node => {
+        if (done || !node) return;
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const el = node;
+          if (el.classList.contains('mg-np-text-caret')) return;
+          if (el.classList.contains('np-pos')) {
+            const p = Number(el.getAttribute('data-pos'));
+            if (!Number.isNaN(p)) { basePos = p; delta = ''; }
+            if (el === targetNode) done = true;
+            return;
+          }
+          if (el.classList.contains('np-math-display') || el.classList.contains('np-math-inline') || el.classList.contains('phpbb-code')) {
+            const sAttr = Number(el.getAttribute('data-np-start'));
+            const eAttr = Number(el.getAttribute('data-np-end'));
+            if (el === targetNode || el.contains(targetNode)) {
+              fixedResult = isEnd ? eAttr : sAttr;
+              done = true;
+              return;
+            }
+            if (!Number.isNaN(eAttr)) { basePos = eAttr; delta = ''; }
+            return;
+          }
+          if (el === targetNode) {
+            const lim = Math.min(targetOffset, el.childNodes.length);
+            for (let i = 0; i < lim && !done; i++) walk(el.childNodes[i]);
+            done = true;
+            return;
+          }
+          for (let i = 0; i < el.childNodes.length && !done; i++) walk(el.childNodes[i]);
+          return;
+        }
+        if (node.nodeType === Node.TEXT_NODE) {
+          if (node === targetNode) {
+            delta += node.nodeValue.slice(0, targetOffset);
+            done = true;
+          } else {
+            delta += node.nodeValue;
+          }
+        }
+      };
+      walk(previewEl);
+      if (typeof fixedResult === 'number' && !Number.isNaN(fixedResult)) {
+        return clamp(fixedResult, 0, src.length);
+      }
+      let si = clamp(basePos, 0, src.length);
+      for (let ri = 0; ri < delta.length && si < src.length; ri++) {
+        const ch = delta[ri];
+        if (src.slice(si, si + 2) === '\\$' && ch === '$') si += 2;
+        else if (src[si] === ch) si += 1;
+        else if (/\s/.test(src[si])) {
+          let k = si;
+          while (k < src.length && k - si < 12 && /\s/.test(src[k]) && src[k] !== ch) k++;
+          si = (src[k] === ch) ? (k + 1) : (si + 1);
+        } else si += 1;
+      }
+      return clamp(si, 0, src.length);
+    };
+
+    const isPreviewInteractiveAllowed = () => {
+      const inReaderMode = document.body.classList.contains('notepad-reader-mode');
+      const inReaderEdit = inReaderMode && document.body.classList.contains('notepad-reader-edit');
+      const inReaderOnly = inReaderMode && !inReaderEdit;
+      return !inReaderOnly && (inReaderEdit || state.previewEditEnabled !== false);
+    };
+
     let dragStart = null;
     let suppressNextClick = false;
 
     on(previewWrap, 'mousedown', e => {
       if (e.button !== 0) return;
-      if (!(document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit'))) {
+      if (state.previewClickCursorLock || !isPreviewInteractiveAllowed()) {
         dragStart = null;
         return;
       }
@@ -1652,7 +2160,7 @@ export function init(ac) {
       if (!dragStart || e.button !== 0) return;
       const startInfo = dragStart;
       dragStart = null;
-      if (!(document.body.classList.contains('notepad-reader-mode') && document.body.classList.contains('notepad-reader-edit'))) return;
+      if (state.previewClickCursorLock || !isPreviewInteractiveAllowed()) return;
       const dist = Math.hypot(e.clientX - startInfo.x, e.clientY - startInfo.y);
       const sel = window.getSelection();
       const hasDomSel = Boolean(sel && !sel.isCollapsed && sel.toString().length > 0);
@@ -1669,7 +2177,7 @@ export function init(ac) {
       const s = Math.min(p1, p2);
       const en = Math.max(p1, p2);
       const dir = p2 < p1 ? 'backward' : 'forward';
-      notepadPreviewNavActive = Boolean(state.intuitiveNavEnabled);
+      notepadPreviewNavActive = isPreviewInteractiveAllowed();
       window.__syncNavIndicators?.();
       try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
       ta.setSelectionRange(s, en, dir);
@@ -1683,14 +2191,14 @@ export function init(ac) {
         suppressNextClick = false;
         return;
       }
-      if (document.body.classList.contains('notepad-reader-mode') && !document.body.classList.contains('notepad-reader-edit')) return;
+      if (state.previewClickCursorLock || !isPreviewInteractiveAllowed()) return;
       if (e.target.closest('a, summary, button, input, select, textarea, .notepad-preview-controls, .notepad-preview-header, .mg-nav-led')) return;
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().length > 0) return;
 
       const src = ta.value || '';
       if (!src.trim()) {
-        notepadPreviewNavActive = Boolean(state.intuitiveNavEnabled);
+        notepadPreviewNavActive = isPreviewInteractiveAllowed();
         window.__syncNavIndicators?.();
         try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
         renderHybridPreview(true, false);
@@ -1703,7 +2211,7 @@ export function init(ac) {
       const { pos: targetPos, mathEl } = resolvePreviewPoint(e.clientX, e.clientY, e.target, isLight);
       const prevMathLeft = mathEl ? mathEl.scrollLeft : 0;
 
-      notepadPreviewNavActive = Boolean(state.intuitiveNavEnabled);
+      notepadPreviewNavActive = isPreviewInteractiveAllowed();
       window.__syncNavIndicators?.();
       const hadSel = lastSelEnd > lastSelStart;
       try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
@@ -1726,6 +2234,85 @@ export function init(ac) {
 
       window.__ensureNotepadCaretVisible?.();
       window.__refreshNotepadCaret?.(true);
+    }, false, sig);
+
+    on(previewWrap, 'copy', e => {
+      if (!e.clipboardData) return;
+      const src = ta.value || '';
+      if (!src) return;
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.rangeCount > 0 && previewEl.contains(sel.anchorNode)) {
+        const range = sel.getRangeAt(0);
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        const rawRects = Array.from(range.getClientRects()).filter(r => r.width >= 1.5 && r.height >= 4);
+        const rFirst = rawRects.length ? rawRects[0] : null;
+        const rLast = rawRects.length ? rawRects[rawRects.length - 1] : null;
+
+        const startEl = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+        const endEl = range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement;
+        const startMath = startEl?.closest?.('.np-math-display[data-np-cstart], .np-math-inline[data-np-cstart]');
+        const endMath = endEl?.closest?.('.np-math-display[data-np-cstart], .np-math-inline[data-np-cstart]');
+
+        let startOff = resolveDomBoundaryToSourceOffset(src, range.startContainer, range.startOffset, false, rFirst, isLight);
+        let endOff = resolveDomBoundaryToSourceOffset(src, range.endContainer, range.endOffset, true, rLast, isLight);
+
+        if (startMath && endMath && startMath === endMath && previewEl.contains(startMath) && rFirst && rLast) {
+          const tokS = Number(startMath.getAttribute('data-np-start'));
+          const tokE = Number(startMath.getAttribute('data-np-end'));
+          const kEl = startMath.querySelector('.katex-html') || startMath.querySelector('.katex') || startMath;
+          const kRect = kEl.getBoundingClientRect();
+          if (kRect.width > 2 && rFirst.left <= kRect.left + 3 && rLast.right >= kRect.right - 3) {
+            const innerSlice = src.slice(Number(startMath.getAttribute('data-np-cstart')), Number(startMath.getAttribute('data-np-cend')));
+            const copiedSingle = innerSlice.trim() || src.slice(tokS, tokE);
+            e.preventDefault();
+            e.clipboardData.setData('text/plain', copiedSingle);
+            return;
+          }
+        }
+
+        if (endOff < startOff) [startOff, endOff] = [endOff, startOff];
+        if (endOff > startOff) {
+          e.preventDefault();
+          e.clipboardData.setData('text/plain', src.slice(startOff, endOff));
+          return;
+        }
+      }
+
+      if (previewWrap.contains(document.activeElement)) {
+        const s = ta.selectionStart ?? 0;
+        const en = ta.selectionEnd ?? s;
+        if (en > s) {
+          e.preventDefault();
+          e.clipboardData.setData('text/plain', src.slice(s, en));
+        }
+      }
+    }, false, sig);
+
+    on(previewWrap, 'paste', e => {
+      if (!isPreviewInteractiveAllowed()) {
+        e.preventDefault();
+        return;
+      }
+      const plain = e.clipboardData?.getData('text/plain');
+      if (typeof plain !== 'string' || !plain) return;
+      e.preventDefault();
+      const val = ta.value || '';
+      const s = ta.selectionStart ?? val.length;
+      const en = ta.selectionEnd ?? s;
+      const inCode = Boolean(findCodeTokenAt(val, s));
+      const inMath = !inCode && isCursorInsideKaTeX(val, s);
+      const transformed = inCode ? plain.replace(/[\uFFF0-\uFFF5]/g, '') : formatPasteForNotepadWysiwyg(plain, inMath);
+      notepadPreviewNavActive = true;
+      window.__syncNavIndicators?.();
+      try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
+      replaceRangePreservingUndo(ta, s, en, transformed, s + transformed.length, s + transformed.length);
+      const follow = Boolean(state.previewFollowEnabled);
+      if (follow) state.notepadUserScrolled = false;
+      pendingScroll = follow;
+      scheduleHybridRender(true);
+      window.__refreshSyntaxHighlight?.();
+      window.__refreshNotepadCaret?.();
+      scheduleSave();
     }, false, sig);
 
     on(previewWrap, 'wheel', e => {
@@ -1802,9 +2389,8 @@ export function init(ac) {
   const hBtn = $('#phpbb-headings-btn'), hMenu = $('#phpbb-headings-menu');
   const sBtn = $('#phpbb-size-btn'), sMenu = $('#phpbb-size-menu');
   const cBtn = $('#phpbb-color-btn'), cMenu = $('#phpbb-color-menu');
-  const tBtn = $('#phpbb-table-btn'), tMenu = $('#phpbb-table-menu');
   const closeAllPhpbbMenus = (except = null) => {
-    for (const m of [hMenu, sMenu, cMenu, tMenu]) {
+    for (const m of [hMenu, sMenu, cMenu]) {
       if (m && m !== except) m.classList.remove('active');
     }
   };
@@ -1851,23 +2437,6 @@ export function init(ac) {
       }, false, sig);
     }
   }
-  if (tBtn && tMenu) {
-    on(tBtn, 'click', e => { e.stopPropagation(); closeAllPhpbbMenus(tMenu); tMenu.classList.toggle('active'); }, false, sig);
-    tMenu.querySelectorAll('[data-phpbb-table]').forEach(b => {
-      on(b, 'click', e => {
-        e.stopPropagation();
-        const [rRaw, cRaw] = (b.getAttribute('data-phpbb-table') || '3x3').split('x');
-        const rows = Math.max(2, Math.min(8, parseInt(rRaw, 10) || 3));
-        const cols = Math.max(1, Math.min(8, parseInt(cRaw, 10) || 3));
-        const head = '[tr]' + Array.from({ length: cols }, (_, ci) => `[th]Στήλη ${ci + 1}[/th]`).join('') + '[/tr]';
-        const bodyRows = Array.from({ length: rows - 1 }, (_, ri) =>
-          '[tr]' + Array.from({ length: cols }, (_, ci) => `[td]${ri === 0 && ci === 0 ? 'Τιμή' : '...'}[/td]`).join('') + '[/tr]'
-        ).join('\n');
-        wrapInNotepad('', '', `[table]\n${head}\n${bodyRows}\n[/table]`);
-        tMenu.classList.remove('active');
-      }, false, sig);
-    });
-  }
   on(document, 'click', () => closeAllPhpbbMenus(), false, sig);
 
   document.querySelectorAll('[data-bb-wrap]').forEach(b => {
@@ -1891,27 +2460,6 @@ export function init(ac) {
   };
   on($('#phpbb-list-ul'), 'click', () => insertList(false), false, sig);
   on($('#phpbb-list-ol'), 'click', () => insertList(true), false, sig);
-
-  on($('#phpbb-clear-fmt-btn'), 'click', () => {
-    try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
-    const s = ta.selectionStart ?? 0, e = ta.selectionEnd ?? 0;
-    if (e > s) {
-      const cleaned = clearBbcode(ta.value.slice(s, e));
-      wrapInNotepad('', '', cleaned);
-    } else {
-      const cleanedAll = clearBbcode(ta.value);
-      ta.select();
-      let ok = false;
-      try { ok = document.execCommand('insertText', false, cleanedAll); } catch { }
-      if (!ok) ta.value = cleanedAll;
-      const follow = Boolean(state.previewFollowEnabled);
-      if (follow) state.notepadUserScrolled = false;
-      renderHybridPreview(true, follow);
-      window.__refreshSyntaxHighlight?.();
-      window.__refreshNotepadCaret?.();
-      set(KEYS.notepadText, ta.value);
-    }
-  }, false, sig);
 
   const mModal = $('#phpbb-media-modal');
   let mediaMode = 'url';
@@ -1982,12 +2530,24 @@ export function init(ac) {
     on(rz, 'pointerdown', e => {
       e.preventDefault();
       const bodyEl = $('.notepad-body');
-      start = {
-        x: e.clientX,
-        w: pvOuter.offsetWidth,
-        max: Math.max(160, (bodyEl?.clientWidth || innerWidth) - 120),
-        val: pvOuter.offsetWidth,
-      };
+      const isBottom = state.notepadLayout === 'bottom' || bodyEl?.getAttribute('data-notepad-layout') === 'bottom';
+      if (isBottom) {
+        start = {
+          mode: 'bottom',
+          y: e.clientY,
+          h: pvOuter.offsetHeight,
+          max: Math.max(140, (bodyEl?.clientHeight || innerHeight) - 120),
+          val: pvOuter.offsetHeight,
+        };
+      } else {
+        start = {
+          mode: 'right',
+          x: e.clientX,
+          w: pvOuter.offsetWidth,
+          max: Math.max(160, (bodyEl?.clientWidth || innerWidth) - 120),
+          val: pvOuter.offsetWidth,
+        };
+      }
       rz.classList.add('active');
       document.body.classList.add('is-resizing');
       rz.setPointerCapture(e.pointerId);
@@ -1995,20 +2555,28 @@ export function init(ac) {
 
     on(rz, 'pointermove', e => {
       if (!start) return;
-      const v = Math.round(clamp(start.w + (start.x - e.clientX), 140, start.max));
-      start.val = v;
-      document.documentElement.style.setProperty('--notepad-preview-width', v + 'px');
-      mirrorSet(KEYS.notepadWidth, v);
+      if (start.mode === 'bottom') {
+        const v = Math.round(clamp(start.h + (start.y - e.clientY), 110, start.max));
+        start.val = v;
+        document.documentElement.style.setProperty('--notepad-bottom-height', v + 'px');
+        mirrorSet(KEYS.notepadBottomHeight, v);
+      } else {
+        const v = Math.round(clamp(start.w + (start.x - e.clientX), 140, start.max));
+        start.val = v;
+        document.documentElement.style.setProperty('--notepad-preview-width', v + 'px');
+        mirrorSet(KEYS.notepadWidth, v);
+      }
+      window.__refreshNotepadCaret?.();
     }, false, sig);
 
     const endRz = e => {
       if (!start) return;
-      const finalV = start.val;
+      const { mode, val } = start;
       start = null;
       try { rz.releasePointerCapture(e.pointerId); } catch { }
       rz.classList.remove('active');
       document.body.classList.remove('is-resizing');
-      set(KEYS.notepadWidth, finalV);
+      set(mode === 'bottom' ? KEYS.notepadBottomHeight : KEYS.notepadWidth, val);
     };
     on(rz, 'pointerup', endRz, false, sig);
     on(rz, 'pointercancel', endRz, false, sig);

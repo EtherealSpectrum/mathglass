@@ -1,7 +1,7 @@
 // ============================================================
 //  CodeCogs-style toolbars — 2 rows (Absolute Mathematical Organization)
 // ============================================================
-var TOOLBARS_SCIENCE = [
+const TOOLBARS_SCIENCE = [
   // ============================================================
   //  ROW 1 - Τα Απολύτως Απαραίτητα (The Essentials)
   // ============================================================
@@ -576,3 +576,5 @@ var TOOLBARS_SCIENCE = [
     ]
   },
 ];
+
+if (typeof window !== 'undefined') window.TOOLBARS_SCIENCE = TOOLBARS_SCIENCE;

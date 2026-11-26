@@ -7,7 +7,9 @@ import {
   applyToolbarHidden,
   applyNotepadToolbarHidden,
   applyPreviewHidden,
-  applyIntuitiveNav,
+  applyPreviewEdit,
+  applyPreviewClickCursorLock,
+  applyNotepadLayout,
   applyAutoBraces,
   applyPreviewFollow,
   applyPreviewCaret,
@@ -23,12 +25,12 @@ const SHORTCUT_HINTS = [
   ['#notepad-copy-btn', 'Alt+C', 'Αντιγραφή κειμένου σημειωματάριου'],
   ['#export-more-btn', 'Alt+Z', 'Επιλογές εξαγωγής'],
   ['#notepad-export-btn', 'Alt+Z', 'Επιλογές εξαγωγής σημειωματάριου'],
-  ['#notepad-toggle', 'Alt+N', 'Σημειωματάριο phpBB'],
-  ['#notepad-templates-btn', 'Alt+L', 'Εμφάνιση/Απόκρυψη προτύπων'],
+  ['#notepad-toggle', 'Alt+N', 'Σημειωματάριο phpBB ↔ Editor'],
   ['#notepad-toolbar-toggle-btn', 'Alt+G', 'Εμφάνιση/Απόκρυψη εργαλειοθήκης σημειωματάριου phpBB'],
   ['#notepad-reader-btn', 'Alt+F', 'Λειτουργία Ανάγνωσης — Πλήρης οθόνη ζωντανής προεπισκόπησης'],
-  ['#notepad-reader-edit-btn', 'Alt+W', 'Επεξεργασία σημειωματάριου μέσα στην οθόνη ανάγνωσης'],
+  ['#notepad-reader-edit-btn', 'Alt+W', 'Εναλλαγή Κώδικα LaTeX ↔ WYSIWYG'],
   ['#theme-toggle', 'Alt+T', 'Εναλλαγή θέματος'],
+  ['#tutorial-toggle', 'F1', 'Οδηγός χρήσης'],
   ['#transparency-toggle', 'Alt+O', 'Διαφάνεια / Αδιαφάνεια'],
   ['#blur-toggle', 'Alt+B', 'Θόλωμα (Τζαμαρία)'],
   ['#toolbar-toggle', 'Alt+K', 'Εμφάνιση/Απόκρυψη εργαλειοθήκης'],
@@ -51,7 +53,14 @@ const SHORTCUT_HINTS = [
   ['#settings-toggle', 'Alt+S', 'Ρυθμίσεις'],
   ['#recent-toggle', 'Alt+R', 'Πρόσφατα σύμβολα'],
   ['#syntax-highlight-toggle', 'Alt+H', 'Χρωματισμός Σύνταξης'],
-  ['#intuitive-nav-toggle', 'Alt+I', 'Διαισθητική Πλοήγηση (κλικ προεπισκόπησης)'],
+  ['#preview-edit-btn', 'Alt+I', 'Επεξεργασία από Προεπισκόπηση'],
+  ['#notepad-preview-edit-btn', 'Alt+I', 'Επεξεργασία από Προεπισκόπηση'],
+  ['#preview-edit-toggle', 'Alt+I', 'Επεξεργασία από Προεπισκόπηση'],
+  ['#preview-click-lock-btn', 'Alt+Shift+E', 'Σταθερός Κέρσορας Προεπισκόπησης'],
+  ['#notepad-preview-click-lock-btn', 'Alt+Shift+E', 'Σταθερός Κέρσορας Προεπισκόπησης'],
+  ['#preview-click-lock-toggle', 'Alt+Shift+E', 'Σταθερός Κέρσορας Προεπισκόπησης'],
+  ['#notepad-layout-btn', 'Alt+Shift+D', 'Διάταξη Σημειωματάριου (Δεξιά ↔ Κάτω)'],
+  ['#notepad-layout-toggle', 'Alt+Shift+D', 'Διάταξη Σημειωματάριου (Δεξιά ↔ Κάτω)'],
   ['#auto-braces-btn', 'Alt+J', 'Αυτόματα Άγκιστρα { }'],
   ['#notepad-auto-braces-btn', 'Alt+J', 'Αυτόματα Άγκιστρα { }'],
   ['#auto-braces-toggle', 'Alt+J', 'Αυτόματα Άγκιστρα { }'],
@@ -65,7 +74,6 @@ const SHORTCUT_HINTS = [
   ['#notepad-slot-hints-btn', 'Alt+Shift+B', 'Εμφάνιση/Απόκρυψη διακεκομμένων πλαισίων ενεργού πεδίου LaTeX'],
   ['#slot-hints-toggle', 'Alt+Shift+B', 'Υποδείξεις Πλαισίου LaTeX'],
   ['#notepad-pull-btn', 'Alt+E', 'Επικόλληση της τρέχουσας εξίσωσης από τον Editor'],
-  ['#notepad-auto-dollar-btn', 'Alt+4', 'Αυτόματο $...$'],
   ['#phpbb-headings-btn', 'Alt+Shift+H', 'Επικεφαλίδες H1–H7 ([size][b])'],
   ['#phpbb-size-btn', 'Alt+Shift+S', 'Μέγεθος ([size])'],
   ['#phpbb-tb-font-down', 'Alt+6', 'Μικρότερα γράμματα εργαλειοθήκης σημειωματάριου'],
@@ -73,7 +81,6 @@ const SHORTCUT_HINTS = [
   ['[data-bb-wrap="[*] ||στοιχείο"]', 'Alt+8', 'Στοιχείο λίστας ([*])'],
   ['#phpbb-img-btn', 'Alt+Shift+I', 'Εικόνα ([img])'],
   ['#phpbb-ggb-btn', 'Alt+Shift+G', 'GeoGebra ([ggb])'],
-  ['#phpbb-center-btn', 'Alt+Shift+C', 'Κεντράρισμα ([center])'],
   ['#toolbar-search-btn', 'Alt+/', 'Αναζήτηση συμβόλων KaTeX (Alt+/ ή Ctrl+Shift+F)'],
   ['#notepad-clear-btn', 'Alt+Shift+Backspace', 'Εκκαθάριση σημειωματάριου'],
   ['[data-bb-wrap="[b]|[/b]|έντονο"]', 'Ctrl+B', 'Έντονα ([b]...[/b])'],
@@ -87,7 +94,6 @@ const SHORTCUT_HINTS = [
   ['[data-bb-wrap="[code]|[/code]|κώδικας"]', 'Alt+U', 'Κώδικας ([code])'],
   ['[data-bb-wrap="[tex]|[/tex]|x^2+y^2=r^2"]', 'Alt+X', 'Εξίσωση phpBB ([tex])'],
   ['[data-bb-wrap="[hide]|[/hide]|Κρυφή λύση..."]', 'Alt+Y', 'Απόκρυψη / Spoiler ([hide])'],
-  ['#phpbb-clear-fmt-btn', 'Ctrl+\\', 'Απαλοιφή μορφοποίησης'],
   ['#close-matrix', 'Esc', 'Κλείσιμο παραθύρου'],
   ['#cancel-matrix', 'Esc', 'Κλείσιμο παραθύρου'],
   ['#close-phpbb-media', 'Esc', 'Κλείσιμο παραθύρου'],
@@ -108,6 +114,10 @@ function applyShortcutTooltips() {
 }
 
 function closeActiveOverlays() {
+  if (window.__isTutorialOpen?.()) {
+    window.__closeTutorial?.(true);
+    return true;
+  }
   if (window.__isLatexAutocompleteOpen?.()) {
     window.__closeLatexAutocomplete?.();
     return true;
@@ -135,7 +145,7 @@ function closeActiveOverlays() {
       return true;
     }
   }
-  if (document.body.classList.contains('notepad-reader-mode')) {
+  if (window.__getNotepadViewMode?.() === 'reader') {
     window.__toggleNotepadReaderMode?.(false);
     return true;
   }
@@ -147,6 +157,8 @@ function isTextOverlayOpen() {
     document.body.classList.contains('notepad-reader-mode') &&
     !document.body.classList.contains('notepad-reader-edit');
   return Boolean(
+    window.__isDatasetChooserOpen?.() ||
+    window.__isTutorialOpen?.() ||
     inReaderOnly ||
     $('#toolbar-search-bar')?.classList.contains('active') ||
     $('#matrix-modal')?.classList.contains('active') ||
@@ -180,6 +192,19 @@ function scheduleEditorFocus(force = false) {
 window.__focusActiveEditor = () => scheduleEditorFocus(false);
 
 function handleShortcutEvent(e, isFromHost = false) {
+  if (window.__isDatasetChooserOpen?.()) {
+    if (window.__handleDatasetChooserKey?.(e)) return true;
+    return false;
+  }
+  if (window.__isTutorialOpen?.()) {
+    if (window.__handleTutorialKey?.(e)) return true;
+    return false;
+  }
+  if (e.key === 'F1' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+    if (!isFromHost) e.preventDefault?.();
+    window.__openTutorial?.(true);
+    return true;
+  }
   if (e.key === 'Escape') {
     if (closeActiveOverlays()) {
       if (!isFromHost) e.preventDefault?.();
@@ -195,23 +220,19 @@ function handleShortcutEvent(e, isFromHost = false) {
   const mod = e.ctrlKey || e.metaKey;
 
   if (mod && !e.altKey) {
-    if (e.code === 'KeyW' && !e.shiftKey && window.mathglassDesktop?.isDesktop) {
+    if (e.code === 'KeyW' && !e.shiftKey) {
       if (!isFromHost) e.preventDefault?.();
       if (!inNotepad) notepad.setNotepadOpen(true);
-      if (!document.body.classList.contains('notepad-reader-mode')) {
-        window.__toggleNotepadReaderMode?.(true);
-        window.__toggleNotepadReaderEditMode?.(true);
-      } else {
-        window.__toggleNotepadReaderEditMode?.();
-      }
+      const mode = window.__getNotepadViewMode?.();
+      window.__setNotepadViewMode?.(mode === 'wysiwyg' ? 'split' : 'wysiwyg');
       return true;
     }
     if (e.code === 'KeyF' && !e.shiftKey && window.mathglassDesktop?.isDesktop) {
       if (!isFromHost) e.preventDefault?.();
       if (!inNotepad) notepad.setNotepadOpen(true);
-      const willEnter = !document.body.classList.contains('notepad-reader-mode');
+      const willExit = window.__getNotepadViewMode?.() === 'reader';
       window.__toggleNotepadReaderMode?.();
-      if (!willEnter) scheduleEditorFocus(true);
+      if (willExit) scheduleEditorFocus(true);
       return true;
     }
     if (e.key === 'Enter' && inNotepad && (isNpFocused || isFromHost) && !window.mathglassDesktop?.isDesktop) {
@@ -228,7 +249,6 @@ function handleShortcutEvent(e, isFromHost = false) {
       if (e.code === 'KeyI') { if (!isFromHost) e.preventDefault?.(); $('[data-bb-wrap="[i]|[/i]|πλάγιο"]')?.click(); scheduleEditorFocus(false); return true; }
       if (e.code === 'KeyU') { if (!isFromHost) e.preventDefault?.(); $('[data-bb-wrap="[u]|[/u]|υπογράμμιση"]')?.click(); scheduleEditorFocus(false); return true; }
       if (e.code === 'KeyK') { if (!isFromHost) e.preventDefault?.(); $('#phpbb-url-btn')?.click(); return true; }
-      if (e.code === 'Backslash') { if (!isFromHost) e.preventDefault?.(); $('#phpbb-clear-fmt-btn')?.click(); scheduleEditorFocus(false); return true; }
     }
     if (e.shiftKey && e.code === 'KeyF') {
       if (!isFromHost) e.preventDefault?.();
@@ -280,6 +300,19 @@ function handleShortcutEvent(e, isFromHost = false) {
         applySlotHints(!state.slotHintsEnabled, true);
         scheduleEditorFocus(false);
         return true;
+      case 'KeyE':
+        if (!isFromHost) e.preventDefault?.();
+        applyPreviewClickCursorLock(!state.previewClickCursorLock, true);
+        scheduleEditorFocus(false);
+        return true;
+      case 'KeyD':
+        if (inNotepad) {
+          if (!isFromHost) e.preventDefault?.();
+          applyNotepadLayout(state.notepadLayout === 'bottom' ? 'right' : 'bottom', true);
+          scheduleEditorFocus(false);
+          return true;
+        }
+        return false;
       case 'KeyH':
         if (inNotepad) {
           if (!isFromHost) e.preventDefault?.();
@@ -305,14 +338,6 @@ function handleShortcutEvent(e, isFromHost = false) {
         if (inNotepad) {
           if (!isFromHost) e.preventDefault?.();
           $('#phpbb-ggb-btn')?.click();
-          return true;
-        }
-        return false;
-      case 'KeyC':
-        if (inNotepad) {
-          if (!isFromHost) e.preventDefault?.();
-          $('#phpbb-center-btn')?.click();
-          scheduleEditorFocus(false);
           return true;
         }
         return false;
@@ -368,7 +393,7 @@ function handleShortcutEvent(e, isFromHost = false) {
     case 'KeyN':
       if (!isFromHost) e.preventDefault?.();
       notepad.toggleNotepad();
-      scheduleEditorFocus(false);
+      scheduleEditorFocus(true);
       return true;
     case 'KeyC':
       if (!isFromHost) e.preventDefault?.();
@@ -403,6 +428,7 @@ function handleShortcutEvent(e, isFromHost = false) {
       scheduleEditorFocus(false);
       return true;
     case 'KeyP':
+      if (inNotepad && window.__getNotepadViewMode?.() === 'wysiwyg') return false;
       if (!isFromHost) e.preventDefault?.();
       applyPreviewHidden(!$('.preview-outer')?.classList.contains('hidden'), true);
       scheduleEditorFocus(false);
@@ -430,7 +456,7 @@ function handleShortcutEvent(e, isFromHost = false) {
       return true;
     case 'KeyI':
       if (!isFromHost) e.preventDefault?.();
-      applyIntuitiveNav(!state.intuitiveNavEnabled, true);
+      applyPreviewEdit(state.previewEditEnabled === false, true);
       scheduleEditorFocus(false);
       return true;
     case 'KeyS':
@@ -457,14 +483,6 @@ function handleShortcutEvent(e, isFromHost = false) {
         return true;
       }
       return false;
-    case 'KeyL':
-      if (inNotepad) {
-        if (!isFromHost) e.preventDefault?.();
-        $('#notepad-templates-btn')?.click();
-        scheduleEditorFocus(false);
-        return true;
-      }
-      return false;
     case 'KeyG':
       if (inNotepad) {
         if (!isFromHost) e.preventDefault?.();
@@ -476,20 +494,16 @@ function handleShortcutEvent(e, isFromHost = false) {
     case 'KeyF': {
       if (!isFromHost) e.preventDefault?.();
       if (!inNotepad) notepad.setNotepadOpen(true);
-      const willEnter = !document.body.classList.contains('notepad-reader-mode');
+      const willExit = window.__getNotepadViewMode?.() === 'reader';
       window.__toggleNotepadReaderMode?.();
-      if (!willEnter) scheduleEditorFocus(true);
+      if (willExit) scheduleEditorFocus(true);
       return true;
     }
     case 'KeyW': {
       if (!isFromHost) e.preventDefault?.();
       if (!inNotepad) notepad.setNotepadOpen(true);
-      if (!document.body.classList.contains('notepad-reader-mode')) {
-        window.__toggleNotepadReaderMode?.(true);
-        window.__toggleNotepadReaderEditMode?.(true);
-      } else {
-        window.__toggleNotepadReaderEditMode?.();
-      }
+      const mode = window.__getNotepadViewMode?.();
+      window.__setNotepadViewMode?.(mode === 'wysiwyg' ? 'split' : 'wysiwyg');
       return true;
     }
     case 'KeyX':
@@ -544,14 +558,6 @@ function handleShortcutEvent(e, isFromHost = false) {
       if (!inNotepad) {
         if (!isFromHost) e.preventDefault?.();
         $('#displaystyle-toggle')?.click();
-        scheduleEditorFocus(false);
-        return true;
-      }
-      return false;
-    case 'Digit4':
-      if (inNotepad) {
-        if (!isFromHost) e.preventDefault?.();
-        $('#notepad-auto-dollar-btn')?.click();
         scheduleEditorFocus(false);
         return true;
       }

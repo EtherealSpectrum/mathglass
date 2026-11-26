@@ -1,5 +1,5 @@
-import { KEYS, LIMITS, DEFAULTS } from '../core/constants.js';
-import { mirrorGet, mirrorSet, get, set, onChanged } from '../core/storage.js';
+import { KEYS, LIMITS, DEFAULTS, FONT_PRESETS, WINDOW_PRESETS } from '../core/constants.js';
+import { mirrorGet, mirrorSet, get, set, remove, onChanged } from '../core/storage.js';
 import { $, on, clamp } from '../core/dom.js';
 import { computeAutoScale } from '../core/scale.js';
 
@@ -16,14 +16,24 @@ export function openDonatePage() {
   if (tabsApi) {
     try { tabsApi.create({ url: DONATE_URL }); return; } catch { }
   }
-  window.open(DONATE_URL, '_blank', 'noopener,noreferrer');
+  const link = document.createElement('a');
+  link.href = DONATE_URL;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.click();
 }
 
 export const state = {
   ta: null, previewWrap: null, preview: null,
   alignLeft: false,
+  previewEditEnabled: true,
   intuitiveNavEnabled: true,
   previewNavActive: false,
+  previewClickCursorLock: false,
+  notepadLayout: 'right',
+  sansFont: 'default',
+  monoFont: 'default',
+  windowPreset: 'default',
   autoBracesEnabled: true,
   previewFollowEnabled: true,
   previewCaretEnabled: true,
@@ -82,6 +92,7 @@ export function snapTransparency(raw) {
 export function applyTransparency(lvl, shouldPersist = true) {
   const level = clamp(Math.round(Number(lvl) || 0), 0, 100);
   document.documentElement.setAttribute('data-transparent', level > 0 ? 'true' : 'false');
+  document.documentElement.setAttribute('data-full-transparent', level >= 100 ? 'true' : 'false');
   document.documentElement.style.setProperty('--panel-alpha', level > 0 ? 1 - level / 100 : 1);
   const trT = $('#transparency-toggle');
   const trS = $('#transparency-slider');
@@ -137,7 +148,6 @@ export function applyNotepadToolbarHidden(hidden, shouldPersist = true) {
     $('#phpbb-headings-menu')?.classList.remove('active');
     $('#phpbb-size-menu')?.classList.remove('active');
     $('#phpbb-color-menu')?.classList.remove('active');
-    $('#phpbb-table-menu')?.classList.remove('active');
   }
   if (btn) {
     btn.classList.toggle('active', !h);
@@ -172,42 +182,180 @@ export function applyPreviewHidden(hidden, shouldPersist = true) {
 }
 
 export function syncNavIndicators() {
-  const allowed = state.intuitiveNavEnabled !== false;
-  const applyBtn = (el, active) => {
+  const allowed = state.previewEditEnabled !== false;
+  const applyLed = (el, active) => {
     if (!el) return;
     const on = Boolean(allowed && active);
     el.classList.toggle('is-on', on);
     el.classList.toggle('is-locked-off', !allowed);
-    el.setAttribute('aria-pressed', String(on));
+    const labelEl = el.querySelector('.mg-nav-text');
+    if (labelEl) {
+      labelEl.textContent = !allowed ? 'Κλειδωμένο' : (on ? 'Προεπισκόπηση' : 'Κώδικας');
+    }
     if (!allowed) {
-      el.title = 'Διαισθητική πλοήγηση LaTeX: ΑΠΕΝΕΡΓΟΠΟΙΗΜΕΝΗ στις Ρυθμίσεις (Alt+I για ενεργοποίηση)';
+      el.title = 'Επεξεργασία από Προεπισκόπηση: ΚΛΕΙΔΩΜΕΝΗ (Alt+I για ξεκλείδωμα)';
     } else if (on) {
-      el.title = 'Διαισθητική πλοήγηση (← / → εντός LaTeX): ΕΝΕΡΓΗ — Κάντε κλικ στον κώδικα για κανονική πλοήγηση (Alt+I για μόνιμη απενεργοποίηση)';
+      el.title = 'Ενεργός τρόπος γραφής: Ζωντανή Προεπισκόπηση WYSIWYG — οι τροποποιήσεις γράφονται απευθείας στην προεπισκόπηση (κλικ στον κώδικα για επαναφορά)';
     } else {
-      el.title = 'Διαισθητική πλοήγηση (← / → εντός LaTeX): ΑΝΕΝΕΡΓΗ — Κάντε κλικ στην προεπισκόπηση για ενεργοποίηση (Alt+I για μόνιμη απενεργοποίηση)';
+      el.title = 'Ενεργός τρόπος γραφής: Κώδικας — κάντε κλικ στη ζωντανή προεπισκόπηση για επεξεργασία WYSIWYG';
     }
   };
-  applyBtn($('#preview-nav-indicator'), state.previewNavActive);
-  applyBtn($('#notepad-nav-indicator'), window.__isNotepadPreviewNavActive?.());
+  applyLed($('#preview-nav-indicator'), state.previewNavActive);
+  const inWysiwyg = document.body.classList.contains('notepad-reader-edit');
+  const npAllowed = inWysiwyg || state.previewEditEnabled !== false;
+  const npEl = $('#notepad-nav-indicator');
+  if (npEl) {
+    const on = Boolean(npAllowed && (inWysiwyg || window.__isNotepadPreviewNavActive?.()));
+    npEl.classList.toggle('is-on', on);
+    npEl.classList.toggle('is-locked-off', !npAllowed);
+    const labelEl = npEl.querySelector('.mg-nav-text');
+    if (labelEl) {
+      labelEl.textContent = !npAllowed ? 'Κλειδωμένο' : (on ? 'Προεπισκόπηση' : 'Κώδικας');
+    }
+    if (!npAllowed) {
+      npEl.title = 'Επεξεργασία από Προεπισκόπηση: ΚΛΕΙΔΩΜΕΝΗ (Alt+I για ξεκλείδωμα)';
+    } else if (on) {
+      npEl.title = 'Ενεργός τρόπος γραφής: Ζωντανή Προεπισκόπηση WYSIWYG — οι τροποποιήσεις γράφονται απευθείας στην προεπισκόπηση (κλικ στον κώδικα για επαναφορά)';
+    } else {
+      npEl.title = 'Ενεργός τρόπος γραφής: Κώδικας — κάντε κλικ στη ζωντανή προεπισκόπηση για επεξεργασία WYSIWYG';
+    }
+  }
 }
 window.__syncNavIndicators = syncNavIndicators;
 
-export function applyIntuitiveNav(enabled, shouldPersist = true) {
+export function applyPreviewEdit(enabled, shouldPersist = true) {
   const on = enabled === false ? false : true;
+  state.previewEditEnabled = on;
   state.intuitiveNavEnabled = on;
   if (!on) {
     state.previewNavActive = false;
     window.__setNotepadPreviewNav?.(false);
   }
-  const btn = $('#intuitive-nav-toggle');
-  if (btn) {
-    btn.classList.toggle('active', on);
-    btn.setAttribute('aria-pressed', String(on));
-    btn.textContent = on ? 'Διαισθητική Πλοήγηση: ΕΝΕΡΓΗ' : 'Διαισθητική Πλοήγηση: ΑΝΕΝΕΡΓΗ';
+  for (const sel of ['#preview-edit-btn', '#notepad-preview-edit-btn']) {
+    const el = $(sel);
+    if (!el) continue;
+    el.classList.toggle('active', on);
+    el.setAttribute('aria-pressed', String(on));
+    el.title = (on
+      ? 'Επεξεργασία από Προεπισκόπηση: ΕΝΕΡΓΗ — Κλικ στη ζωντανή προεπισκόπηση για άμεση WYSIWYG τροποποίηση'
+      : 'Επεξεργασία από Προεπισκόπηση: ΚΛΕΙΔΩΜΕΝΗ — Μόνο προβολή (κλικ για ενεργοποίηση τροποποιήσεων από την προεπισκόπηση)') + ' (Alt+I)';
+  }
+  const sBtn = $('#preview-edit-toggle');
+  if (sBtn) {
+    sBtn.classList.toggle('active', on);
+    sBtn.setAttribute('aria-pressed', String(on));
+    sBtn.textContent = on ? 'Επεξεργασία από Προεπισκόπηση: ΕΝΕΡΓΗ' : 'Επεξεργασία από Προεπισκόπηση: ΑΝΕΝΕΡΓΗ';
   }
   syncNavIndicators();
-  if (shouldPersist) persist(KEYS.intuitiveNav, on);
-  else mirrorSet(KEYS.intuitiveNav, on);
+  if (shouldPersist) persist(KEYS.previewEdit, on);
+  else mirrorSet(KEYS.previewEdit, on);
+}
+export const applyIntuitiveNav = applyPreviewEdit;
+
+export function applyPreviewClickCursorLock(enabled, shouldPersist = true) {
+  const lock = enabled === true;
+  state.previewClickCursorLock = lock;
+  document.documentElement.setAttribute('data-cursor-lock', lock ? 'true' : 'false');
+  for (const sel of ['#preview-click-lock-btn', '#notepad-preview-click-lock-btn']) {
+    const el = $(sel);
+    if (!el) continue;
+    el.classList.toggle('active', lock);
+    el.setAttribute('aria-pressed', String(lock));
+    el.title = (lock
+      ? 'Κέρσορας στην Προεπισκόπηση: ΚΛΕΙΔΩΜΕΝΟΣ — Το κλικ/επιλογή στην προεπισκόπηση ΔΕΝ μετακινεί τον κέρσορα κώδικα ώστε να αντιγράφετε ελεύθερα'
+      : 'Κέρσορας στην Προεπισκόπηση: ΕΛΕΥΘΕΡΟΣ — Όταν ενεργοποιηθεί, το κλικ/επιλογή στην προεπισκόπηση ΔΕΝ μετακινεί τον κέρσορα κώδικα ώστε να αντιγράφετε ελεύθερα') + ' (Alt+Shift+E)';
+  }
+  const sBtn = $('#preview-click-lock-toggle');
+  if (sBtn) {
+    sBtn.classList.toggle('active', lock);
+    sBtn.setAttribute('aria-pressed', String(lock));
+    sBtn.textContent = lock
+      ? 'Σταθερός Κέρσορας Προεπισκόπησης: ΕΝΕΡΓΟΣ'
+      : 'Σταθερός Κέρσορας Προεπισκόπησης: ΑΝΕΝΕΡΓΟΣ';
+  }
+  if (shouldPersist) persist(KEYS.previewClickLock, lock);
+  else mirrorSet(KEYS.previewClickLock, lock);
+}
+
+export function applyNotepadLayout(layout, shouldPersist = true) {
+  const lay = layout === 'bottom' ? 'bottom' : 'right';
+  state.notepadLayout = lay;
+  document.documentElement.setAttribute('data-notepad-layout', lay);
+  const bodyEl = $('.notepad-body');
+  if (bodyEl) bodyEl.setAttribute('data-notepad-layout', lay);
+  const btn = $('#notepad-layout-btn');
+  if (btn) {
+    btn.classList.toggle('active', lay === 'bottom');
+    btn.setAttribute('aria-pressed', String(lay === 'bottom'));
+    btn.textContent = lay === 'bottom' ? 'Δεξιά' : 'Κάτω';
+    btn.title = (lay === 'bottom'
+      ? 'Διάταξη Σημειωματάριου: Κάτω (πατήστε για μεταφορά Δεξιά)'
+      : 'Διάταξη Σημειωματάριου: Δεξιά (πατήστε για μεταφορά Κάτω)') + ' (Alt+Shift+D)';
+  }
+  const sBtn = $('#notepad-layout-toggle');
+  if (sBtn) {
+    sBtn.classList.toggle('active', lay === 'bottom');
+    sBtn.setAttribute('aria-pressed', String(lay === 'bottom'));
+    sBtn.textContent = lay === 'bottom' ? 'Διάταξη Σημειωματάριου: Κάτω' : 'Διάταξη Σημειωματάριου: Δεξιά';
+  }
+  const rz = $('#notepad-resizer');
+  if (rz) {
+    rz.title = lay === 'bottom'
+      ? 'Σύρετε για αλλαγή ύψους προεπισκόπησης'
+      : 'Σύρετε για αλλαγή πλάτους προεπισκόπησης';
+  }
+  window.__applySavedNotepadDimensions?.();
+  window.__invalidateNotepadMetricsCache?.();
+  requestAnimationFrame(() => window.__refreshNotepadCaret?.(false));
+  if (shouldPersist) persist(KEYS.notepadLayout, lay);
+  else mirrorSet(KEYS.notepadLayout, lay);
+}
+
+export function applySansFont(preset, shouldPersist = true) {
+  const key = Object.prototype.hasOwnProperty.call(FONT_PRESETS.sans, preset) ? preset : 'default';
+  state.sansFont = key;
+  document.documentElement.style.setProperty('--sans', FONT_PRESETS.sans[key]);
+  const sel = $('#sans-font-select');
+  if (sel && sel.value !== key) sel.value = key;
+  window.__invalidateNotepadMetricsCache?.();
+  requestAnimationFrame(() => {
+    window.__renderPreview?.(false);
+    window.__renderHybridPreview?.(true, false);
+    window.__refreshNotepadCaret?.(false);
+  });
+  if (shouldPersist) persist(KEYS.sansFont, key);
+  else mirrorSet(KEYS.sansFont, key);
+}
+
+export function applyMonoFont(preset, shouldPersist = true) {
+  const key = Object.prototype.hasOwnProperty.call(FONT_PRESETS.mono, preset) ? preset : 'default';
+  state.monoFont = key;
+  document.documentElement.style.setProperty('--mono', FONT_PRESETS.mono[key]);
+  const sel = $('#mono-font-select');
+  if (sel && sel.value !== key) sel.value = key;
+  window.__invalidateNotepadMetricsCache?.();
+  window.__syncHighlightFont?.('latex-input');
+  window.__syncHighlightFont?.('notepad-input');
+  requestAnimationFrame(() => window.__refreshNotepadCaret?.(false));
+  if (shouldPersist) persist(KEYS.monoFont, key);
+  else mirrorSet(KEYS.monoFont, key);
+}
+
+export function applyWindowPreset(preset, shouldPersist = true, triggerResize = true) {
+  const key = Object.prototype.hasOwnProperty.call(WINDOW_PRESETS, preset) ? preset : 'default';
+  state.windowPreset = key;
+  const sel = $('#window-size-select');
+  if (sel && sel.value !== key) sel.value = key;
+  const spec = WINDOW_PRESETS[key];
+  if (triggerResize && spec) {
+    if (window.mathglassDesktop?.setWindowSize) {
+      try { window.mathglassDesktop.setWindowSize(spec); } catch { }
+    } else if (window.parent !== window) {
+      try { window.parent.postMessage({ type: 'latex-panel-set-window-size', ...spec }, '*'); } catch { }
+    }
+  }
+  if (shouldPersist) persist(KEYS.windowPreset, key);
+  else mirrorSet(KEYS.windowPreset, key);
 }
 
 export function applyAutoBraces(enabled, shouldPersist = true) {
@@ -330,7 +478,12 @@ export async function load() {
     applyToolbarHidden(r[KEYS.toolbarHidden] ?? mirrorGet(KEYS.toolbarHidden, 'bool') ?? DEFAULTS.toolbarHidden, false);
     applyNotepadToolbarHidden(r[KEYS.notepadToolbarHidden] ?? mirrorGet(KEYS.notepadToolbarHidden, 'bool') ?? DEFAULTS.notepadToolbarHidden, false);
     applyPreviewHidden(r[KEYS.previewHidden] ?? mirrorGet(KEYS.previewHidden, 'bool') ?? DEFAULTS.previewHidden, false);
-    applyIntuitiveNav(r[KEYS.intuitiveNav] ?? mirrorGet(KEYS.intuitiveNav, 'bool') ?? DEFAULTS.intuitiveNav, false);
+    applyPreviewEdit(r[KEYS.previewEdit] ?? mirrorGet(KEYS.previewEdit, 'bool') ?? DEFAULTS.previewEdit, false);
+    applyPreviewClickCursorLock(r[KEYS.previewClickLock] ?? mirrorGet(KEYS.previewClickLock, 'bool') ?? DEFAULTS.previewClickLock, false);
+    applyNotepadLayout(r[KEYS.notepadLayout] ?? mirrorGet(KEYS.notepadLayout) ?? DEFAULTS.notepadLayout, false);
+    applySansFont(r[KEYS.sansFont] ?? mirrorGet(KEYS.sansFont) ?? DEFAULTS.sansFont, false);
+    applyMonoFont(r[KEYS.monoFont] ?? mirrorGet(KEYS.monoFont) ?? DEFAULTS.monoFont, false);
+    applyWindowPreset(r[KEYS.windowPreset] ?? mirrorGet(KEYS.windowPreset) ?? DEFAULTS.windowPreset, false, false);
     applyAutoBraces(r[KEYS.autoBraces] ?? mirrorGet(KEYS.autoBraces, 'bool') ?? DEFAULTS.autoBraces, false);
     applyPreviewFollow(r[KEYS.previewFollow] ?? mirrorGet(KEYS.previewFollow, 'bool') ?? DEFAULTS.previewFollow, false);
     applyPreviewCaret(r[KEYS.previewCaret] ?? mirrorGet(KEYS.previewCaret, 'bool') ?? DEFAULTS.previewCaret, false);
@@ -403,6 +556,7 @@ export function applyVisuals() {
     const ntbl = $('#notepad-toolbar-size-label'); if (ntbl) ntbl.value = Math.round(state.notepadToolbarScale * 100);
     const hbl = $('#header-btn-size-label'); if (hbl) hbl.value = Math.round(state.headerBtnScale * 100);
     const tl = $('#toolbar-size-label'); if (tl) tl.value = Math.round(state.toolbarScale * 100);
+    window.__invalidateNotepadMetricsCache?.();
     window.__refreshNotepadCaret?.();
   } catch { }
 }
@@ -522,8 +676,47 @@ export function bindControls(ac) {
   const pvToggle = $('#preview-toggle');
   if (pvToggle) on(pvToggle, 'click', () => applyPreviewHidden(!$('.preview-outer')?.classList.contains('hidden'), true), false, sig);
 
-  const navToggle = $('#intuitive-nav-toggle');
-  if (navToggle) on(navToggle, 'click', () => applyIntuitiveNav(!state.intuitiveNavEnabled, true), false, sig);
+  for (const sel of ['#preview-edit-btn', '#notepad-preview-edit-btn', '#preview-edit-toggle']) {
+    const el = $(sel);
+    if (!el) continue;
+    on(el, 'mousedown', e => e.preventDefault(), false, sig);
+    on(el, 'click', e => {
+      e.stopPropagation();
+      applyPreviewEdit(state.previewEditEnabled === false, true);
+      window.__focusActiveEditor?.();
+    }, false, sig);
+  }
+
+  for (const sel of ['#preview-click-lock-btn', '#notepad-preview-click-lock-btn', '#preview-click-lock-toggle']) {
+    const el = $(sel);
+    if (!el) continue;
+    on(el, 'mousedown', e => e.preventDefault(), false, sig);
+    on(el, 'click', e => {
+      e.stopPropagation();
+      applyPreviewClickCursorLock(!state.previewClickCursorLock, true);
+      window.__focusActiveEditor?.();
+    }, false, sig);
+  }
+
+  for (const sel of ['#notepad-layout-btn', '#notepad-layout-toggle']) {
+    const el = $(sel);
+    if (!el) continue;
+    on(el, 'mousedown', e => e.preventDefault(), false, sig);
+    on(el, 'click', e => {
+      e.stopPropagation();
+      applyNotepadLayout(state.notepadLayout === 'bottom' ? 'right' : 'bottom', true);
+      window.__focusActiveEditor?.();
+    }, false, sig);
+  }
+
+  const sansSel = $('#sans-font-select');
+  if (sansSel) on(sansSel, 'change', () => applySansFont(sansSel.value, true), false, sig);
+
+  const monoSel = $('#mono-font-select');
+  if (monoSel) on(monoSel, 'change', () => applyMonoFont(monoSel.value, true), false, sig);
+
+  const winSel = $('#window-size-select');
+  if (winSel) on(winSel, 'change', () => applyWindowPreset(winSel.value, true, true), false, sig);
 
   for (const sel of ['#auto-braces-btn', '#notepad-auto-braces-btn', '#auto-braces-toggle']) {
     const el = $(sel);
@@ -569,31 +762,6 @@ export function bindControls(ac) {
     }, false, sig);
   }
 
-  const pvNavLed = $('#preview-nav-indicator');
-  if (pvNavLed) {
-    on(pvNavLed, 'mousedown', e => e.preventDefault(), false, sig);
-    on(pvNavLed, 'click', e => {
-      e.stopPropagation();
-      if (!state.intuitiveNavEnabled) return;
-      state.previewNavActive = !state.previewNavActive;
-      syncNavIndicators();
-      try { state.ta?.focus({ preventScroll: true }); } catch { state.ta?.focus(); }
-    }, false, sig);
-  }
-
-  const npNavLed = $('#notepad-nav-indicator');
-  if (npNavLed) {
-    on(npNavLed, 'mousedown', e => e.preventDefault(), false, sig);
-    on(npNavLed, 'click', e => {
-      e.stopPropagation();
-      if (!state.intuitiveNavEnabled) return;
-      window.__setNotepadPreviewNav?.(!window.__isNotepadPreviewNavActive?.());
-      syncNavIndicators();
-      const np = $('#notepad-input');
-      try { np?.focus({ preventScroll: true }); } catch { np?.focus(); }
-    }, false, sig);
-  }
-
   const unsub = onChanged(changes => {
     if (changes[KEYS.theme]) applyTheme(changes[KEYS.theme].newValue, false);
     if (changes[KEYS.transparency]) applyTransparency(changes[KEYS.transparency].newValue, false);
@@ -601,7 +769,12 @@ export function bindControls(ac) {
     if (changes[KEYS.toolbarHidden]) applyToolbarHidden(changes[KEYS.toolbarHidden].newValue, false);
     if (changes[KEYS.notepadToolbarHidden]) applyNotepadToolbarHidden(changes[KEYS.notepadToolbarHidden].newValue, false);
     if (changes[KEYS.previewHidden]) applyPreviewHidden(changes[KEYS.previewHidden].newValue, false);
-    if (changes[KEYS.intuitiveNav]) applyIntuitiveNav(changes[KEYS.intuitiveNav].newValue, false);
+    if (changes[KEYS.previewEdit]) applyPreviewEdit(changes[KEYS.previewEdit].newValue, false);
+    if (changes[KEYS.previewClickLock]) applyPreviewClickCursorLock(changes[KEYS.previewClickLock].newValue, false);
+    if (changes[KEYS.notepadLayout]) applyNotepadLayout(changes[KEYS.notepadLayout].newValue, false);
+    if (changes[KEYS.sansFont]) applySansFont(changes[KEYS.sansFont].newValue, false);
+    if (changes[KEYS.monoFont]) applyMonoFont(changes[KEYS.monoFont].newValue, false);
+    if (changes[KEYS.windowPreset]) applyWindowPreset(changes[KEYS.windowPreset].newValue, false, false);
     if (changes[KEYS.autoBraces]) applyAutoBraces(changes[KEYS.autoBraces].newValue, false);
     if (changes[KEYS.previewFollow]) applyPreviewFollow(changes[KEYS.previewFollow].newValue, false);
     if (changes[KEYS.previewCaret]) applyPreviewCaret(changes[KEYS.previewCaret].newValue, false);
@@ -635,6 +808,39 @@ export function bindControls(ac) {
     persist(KEYS.settingsCollapsed, h); window.__reportNaturalSize?.(400);
   }, false, sig);
 
+  const resetBtn = $('#reset-defaults-btn');
+  if (resetBtn) {
+    let resetConfirmTimer = null;
+    let resetDoneTimer = null;
+    const clearResetBtnState = () => {
+      clearTimeout(resetConfirmTimer);
+      clearTimeout(resetDoneTimer);
+      resetBtn.dataset.confirm = '';
+      resetBtn.classList.remove('confirming', 'done');
+      resetBtn.textContent = 'Επαναφορά Προεπιλογών';
+    };
+    on(resetBtn, 'click', e => {
+      e.stopPropagation();
+      if (resetBtn.dataset.confirm !== '1') {
+        clearTimeout(resetDoneTimer);
+        resetBtn.classList.remove('done');
+        resetBtn.dataset.confirm = '1';
+        resetBtn.classList.add('confirming');
+        resetBtn.textContent = 'Σίγουρα επαναφορά;';
+        resetConfirmTimer = setTimeout(clearResetBtnState, 3500);
+        return;
+      }
+      clearTimeout(resetConfirmTimer);
+      clearTimeout(resetDoneTimer);
+      resetBtn.dataset.confirm = '';
+      resetBtn.classList.remove('confirming');
+      resetAllDefaults();
+      resetBtn.classList.add('done');
+      resetBtn.textContent = 'Επαναφέρθηκαν ✓';
+      resetDoneTimer = setTimeout(clearResetBtnState, 2000);
+    }, false, sig);
+  }
+
   const donateCopy = $('#settings-donate-copy');
   if (donateCopy) {
     on(donateCopy, 'click', e => {
@@ -642,6 +848,94 @@ export function bindControls(ac) {
       openDonatePage();
     }, false, sig);
   }
+}
+
+export function resetAllDefaults() {
+  state.alignLeft = DEFAULTS.alignLeft;
+  persist(KEYS.alignLeft, state.alignLeft);
+  if (state.previewWrap) state.previewWrap.classList.toggle('align-left', state.alignLeft);
+  const al = $('#preview-inline-btn');
+  if (al) {
+    al.classList.toggle('active', state.alignLeft);
+    al.setAttribute('aria-pressed', String(state.alignLeft));
+  }
+
+  state.dataset = DEFAULTS.dataset;
+  persist(KEYS.dataset, state.dataset);
+  const ds = $('#toolbar-dataset-select');
+  if (ds) ds.value = state.dataset;
+  window.__rebuildToolbar?.();
+
+  remove(KEYS.previewHeight);
+  remove(KEYS.notepadHeight);
+  remove(KEYS.notepadWidth);
+  remove(KEYS.notepadBottomHeight);
+  remove(KEYS.geometry);
+  remove(KEYS.notepadAutoDollar);
+  document.documentElement.style.removeProperty('--notepad-preview-width');
+  document.documentElement.style.removeProperty('--notepad-bottom-height');
+  const lhw = $('#latex-highlight-wrap');
+  if (lhw) lhw.style.height = '';
+
+  applyTheme(DEFAULTS.theme, true);
+  applyTransparency(DEFAULTS.transparency, true);
+  applyBlur(DEFAULTS.blurEnabled, true);
+  applyToolbarHidden(DEFAULTS.toolbarHidden, true);
+  applyNotepadToolbarHidden(DEFAULTS.notepadToolbarHidden, true);
+  applyPreviewHidden(DEFAULTS.previewHidden, true);
+  applyPreviewEdit(DEFAULTS.previewEdit, true);
+  applyPreviewClickCursorLock(DEFAULTS.previewClickLock, true);
+  applyNotepadLayout(DEFAULTS.notepadLayout, true);
+  applySansFont(DEFAULTS.sansFont, true);
+  applyMonoFont(DEFAULTS.monoFont, true);
+  applyAutoBraces(DEFAULTS.autoBraces, true);
+  applyPreviewFollow(DEFAULTS.previewFollow, true);
+  applyPreviewCaret(DEFAULTS.previewCaret, true);
+  applySlotHints(DEFAULTS.slotHints, true);
+
+  if (document.documentElement.getAttribute('data-syntax') !== String(DEFAULTS.syntaxHighlight)) {
+    $('#syntax-highlight-toggle')?.click();
+  } else {
+    persist(KEYS.syntaxHighlight, DEFAULTS.syntaxHighlight);
+  }
+
+  for (const [sel, key, defVal] of [
+    ['#tex-toggle', KEYS.texWrap, DEFAULTS.texWrap],
+    ['#inline-toggle', KEYS.textstyle, DEFAULTS.textstyle],
+    ['#displaystyle-toggle', KEYS.displaystyle, DEFAULTS.displaystyle],
+  ]) {
+    const c = $(sel);
+    if (c) c.checked = Boolean(defVal);
+    persist(key, Boolean(defVal));
+  }
+
+  const tg = $('#toggle-group');
+  const sb = $('#settings-btn');
+  if (tg) tg.classList.toggle('hidden', DEFAULTS.settingsCollapsed);
+  if (sb) sb.classList.toggle('active', DEFAULTS.settingsCollapsed);
+  persist(KEYS.settingsCollapsed, DEFAULTS.settingsCollapsed);
+
+  const scaleKinds = ['toolbar', 'preview', 'editor', 'notepad', 'notepadPreview', 'notepadToolbar', 'headerBtn'];
+  for (const k of scaleKinds) {
+    setSize(k, computeAutoScale(k), true);
+  }
+
+  applyWindowPreset(DEFAULTS.windowPreset, true, true);
+  setTimeout(() => {
+    for (const k of scaleKinds) {
+      if (state[`${SCALE_PROP[k]}Auto`]) {
+        setSize(k, computeAutoScale(k), true);
+      }
+    }
+  }, 160);
+
+  window.__setNotepadOpen?.(true);
+  window.__setNotepadViewMode?.('wysiwyg');
+
+  window.__renderPreview?.(false);
+  window.__renderHybridPreview?.(true, false);
+  window.__refreshSyntaxHighlight?.();
+  window.__refreshNotepadCaret?.();
 }
 
 export function recordEquationHistory(latex) {

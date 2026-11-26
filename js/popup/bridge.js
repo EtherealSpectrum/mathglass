@@ -108,6 +108,10 @@ export function init(ac) {
         case 'toggle-settings': toolbar.toggleSettingsFromPanel(d.anchorLeft); break;
         case 'toggle-recent': toolbar.toggleRecentFromPanel(d.anchorLeft); break;
         case 'toggle-notepad': notepad.toggleNotepad(); break;
+        case 'toggle-tutorial':
+          if (window.__isTutorialOpen?.()) window.__closeTutorial?.(true);
+          else window.__openTutorial?.(true);
+          break;
         case 'open-donate': openDonatePage(); break;
         case 'close-popups': toolbar.closeAllPopups(); break;
         case 'focus-editor': try { window.focus(); } catch { } window.__focusActiveEditor?.(); break;

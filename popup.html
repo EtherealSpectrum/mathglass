@@ -9,6 +9,7 @@
     <script src="lib/katex/katex.min.js"></script>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/notepad-placeholder-fix.css">
+    <link rel="stylesheet" href="css/blur-and-phpbb-patch.css">
     <script src="lib/html2canvas.min.js"></script>
     <script src="lib/jspdf.umd.min.js"></script>
 </head>
@@ -42,19 +43,10 @@
         <div class="resizer" id="resizer-middle" title="Σύρετε για αλλαγή ύψους προεπισκόπησης"></div>
         <div class="preview-outer">
             <div class="preview-controls">
-                <button class="mg-nav-led" id="preview-nav-indicator" type="button" aria-pressed="false"
-                    title="Διαισθητική πλοήγηση (← / → εντός LaTeX): ΑΝΕΝΕΡΓΗ — Κάντε κλικ στην προεπισκόπηση για ενεργοποίηση (Alt+I στις Ρυθμίσεις)">
+                <span class="mg-nav-led" id="preview-nav-indicator" role="status" aria-live="polite"
+                    title="Ενεργός τρόπος γραφής: Κώδικας (κάντε κλικ στη ζωντανή προεπισκόπηση για επεξεργασία WYSIWYG)">
                     <span class="mg-nav-dot" aria-hidden="true"></span>
-                    <span>Πλοήγηση</span>
-                </button>
-                <button class="mg-tool-chip active" id="auto-braces-btn" type="button" aria-pressed="true"
-                    title="Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ — Περιβάλλει εκθέτες, δείκτες, αριθμητές & κλείνει { } (Alt+J)">{ }</button>
-                <button class="mg-tool-chip active" id="follow-mode-btn" type="button" aria-pressed="true"
-                    title="Παρακολούθηση Προεπισκόπησης: ΑΚΟΛΟΥΘΗΣΗ — Η προεπισκόπηση ακολουθεί αυτόματα τον κέρσορα καθώς γράφετε (Alt+5)">Ακολούθηση</button>
-                <button class="mg-tool-chip active" id="preview-caret-btn" type="button" aria-pressed="true"
-                    title="Κέρσορας Προεπισκόπησης: ΕΜΦΑΝΗΣ — Κλικ για απόκρυψη παλλόμενου δρομέα στη ζωντανή προεπισκόπηση (Alt+9)">Κέρσορας</button>
-                <button class="mg-tool-chip active" id="slot-hints-btn" type="button" aria-pressed="true"
-                    title="Υποδείξεις Πλαισίου: ΕΝΕΡΓΕΣ — Εμφάνιση διακεκομμένου πλαισίου γύρω από εκθέτες, δείκτες & κλάσματα (Alt+Shift+B)">Πλαίσια</button>
+                </span>
                 <button class="auto-badge active" id="preview-auto-badge" type="button" aria-pressed="true"
                     title="Αυτόματο μέγεθος (Alt+0)">AUTO</button>
                 <button id="preview-inline-btn" type="button" title="Αριστερή στοίχιση (Alt+A)" aria-pressed="false">
@@ -63,12 +55,12 @@
                         <path d="M2 2v10M5 7h7M9 4l3 3-3 3" />
                     </svg>
                 </button>
-                <button id="zoom-out" title="Σμίκρυνση (Alt+-)">−</button>
-                <input type="number" id="zoom-label" min="50" max="300" step="1" value="100"
+                <button id="zoom-out" type="button" title="Σμίκρυνση (Alt+-)">−</button>
+                <input type="number" id="zoom-label" min="50" max="350" step="1" value="100"
                     title="Μέγεθος γραμματοσειράς (%)">
-                <button id="zoom-in" title="Μεγέθυνση (Alt+=)">+</button>
+                <button id="zoom-in" type="button" title="Μεγέθυνση (Alt+=)">+</button>
             </div>
-            <div class="preview-wrap" id="preview-wrap">
+            <div class="preview-wrap" id="preview-wrap" tabindex="-1">
                 <div id="preview"></div>
             </div>
         </div>
@@ -132,37 +124,6 @@
 
     <!-- Σημειωματάριο phpBB (mathematica.gr + KaTeX) -->
     <section class="notepad-view" id="notepad-view" aria-label="Σημειωματάριο phpBB">
-        <div class="notepad-bar">
-            <span class="notepad-title">Σημειωματάριο phpBB</span>
-            <div class="notepad-bar-actions">
-                <div class="notepad-scale-control" role="group" aria-label="Μέγεθος κειμένου σημειωματάριου">
-                    <button class="auto-badge active" id="notepad-text-auto-badge" type="button" aria-pressed="true"
-                        title="Αυτόματη κλιμάκωση κειμένου σημειωματάριου">AUTO</button>
-                    <button id="notepad-text-zoom-out" type="button" title="Μικρότερο κείμενο">Aa−</button>
-                    <input type="number" id="notepad-text-zoom-label" min="75" max="220" step="1" value="100"
-                        title="Μέγεθος κειμένου σημειωματάριου (%)">
-                    <button id="notepad-text-zoom-in" type="button" title="Μεγαλύτερο κείμενο">Aa+</button>
-                </div>
-                <button class="notepad-btn accent" id="notepad-auto-dollar-btn" type="button" aria-pressed="true"
-                    title="Αυτόματο $...$: ΕΝΕΡΓΟ — Όταν ο κέρσορας είναι εκτός εξίσωσης ($...$, $$...$$, [tex]...[/tex]), τα σύμβολα της εργαλειοθήκης KaTeX περιβάλλονται αυτόματα με $...$ (Alt+4)">$
-                    Auto</button>
-                <button class="notepad-btn active" id="notepad-auto-braces-btn" type="button" aria-pressed="true"
-                    title="Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ — Περιβάλλει εκθέτες, δείκτες, αριθμητές & κλείνει { } (Alt+J)">{ }</button>
-                <button class="notepad-btn active" id="notepad-follow-mode-btn" type="button" aria-pressed="true"
-                    title="Παρακολούθηση Προεπισκόπησης: ΑΚΟΛΟΥΘΗΣΗ — Η προεπισκόπηση ακολουθεί αυτόματα τον κέρσορα καθώς γράφετε (Alt+5)">Ακολούθηση</button>
-                <button class="notepad-btn active" id="notepad-preview-caret-btn" type="button" aria-pressed="true"
-                    title="Κέρσορας Προεπισκόπησης: ΕΜΦΑΝΗΣ — Κλικ για απόκρυψη παλλόμενου δρομέα στη ζωντανή προεπισκόπηση (Alt+9)">Κέρσορας</button>
-                <button class="notepad-btn active" id="notepad-slot-hints-btn" type="button" aria-pressed="true"
-                    title="Υποδείξεις Πλαισίου: ΕΝΕΡΓΕΣ — Εμφάνιση διακεκομμένου πλαισίου γύρω από εκθέτες, δείκτες & κλάσματα (Alt+Shift+B)">Πλαίσια</button>
-                <button class="notepad-btn" id="notepad-templates-btn" type="button" aria-pressed="false"
-                    title="Εμφάνιση/Απόκρυψη έτοιμων προτύπων phpBB & KaTeX (Alt+L)">Πρότυπα ▾</button>
-                <button class="notepad-btn active" id="notepad-toolbar-toggle-btn" type="button" aria-pressed="true"
-                    title="Εμφάνιση/Απόκρυψη εργαλειοθήκης σημειωματάριου phpBB (Alt+G)">Εργαλειοθήκη ▾</button>
-                <button class="notepad-btn accent" id="notepad-pull-btn" type="button"
-                    title="Επικόλληση της τρέχουσας εξίσωσης από τον Editor (Alt+E)">+ Από Editor</button>
-            </div>
-        </div>
-
         <!-- Εργαλειοθήκη Μορφοποίησης phpBB (mathematica.gr) -->
         <div class="phpbb-toolbar" id="phpbb-toolbar">
             <div class="phpbb-dropdown-wrap">
@@ -218,8 +179,6 @@
                     </div>
                 </div>
             </div>
-            <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-center-btn"
-                data-bb-wrap="[center]|[/center]|Κείμενο" title="Κεντράρισμα ([center]...[/center])">Κέντρο</button>
             <span class="phpbb-sep"></span>
             <button type="button" class="phpbb-tb-btn" id="phpbb-list-ul"
                 title="Λίστα με κουκκίδες ([list][*]...[/list])">•≡</button>
@@ -232,16 +191,6 @@
                 title="Σύνδεσμος ([url]) (Ctrl+K)">URL</button>
             <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-img-btn"
                 title="Εικόνα ([img])">IMG</button>
-            <div class="phpbb-dropdown-wrap">
-                <button type="button" class="phpbb-tb-btn phpbb-tb-wide" id="phpbb-table-btn"
-                    title="Εισαγωγή πίνακα phpBB ([table])">Πίνακας ▾</button>
-                <div class="phpbb-dropdown-menu" id="phpbb-table-menu">
-                    <button type="button" data-phpbb-table="2x2">Πίνακας 2×2</button>
-                    <button type="button" data-phpbb-table="3x3">Πίνακας 3×3</button>
-                    <button type="button" data-phpbb-table="3x4">Πίνακας 3×4</button>
-                    <button type="button" data-phpbb-table="4x3">Πίνακας 4×3</button>
-                </div>
-            </div>
             <span class="phpbb-sep"></span>
             <button type="button" class="phpbb-tb-btn phpbb-tb-wide" data-bb-wrap="[quote]|[/quote]|Παράθεση..."
                 title="Παράθεση ([quote])">Quote</button>
@@ -253,9 +202,6 @@
                 title="GeoGebra ([ggb])">[ggb]</button>
             <button type="button" class="phpbb-tb-btn phpbb-tb-mono" data-bb-wrap="[hide]|[/hide]|Κρυφή λύση..."
                 title="Απόκρυψη / Spoiler ([hide])">[hide]</button>
-            <span class="phpbb-sep"></span>
-            <button type="button" class="phpbb-tb-btn phpbb-tb-wide phpbb-tb-danger" id="phpbb-clear-fmt-btn"
-                title="Απαλοιφή μορφοποίησης (αφαιρεί BBCode)">Απαλοιφή</button>
             <div class="phpbb-tb-size-group" role="group" aria-label="Μέγεθος γραμμάτων εργαλειοθήκης σημειωματάριου">
                 <button type="button" class="phpbb-tb-btn phpbb-tb-size-btn" id="phpbb-tb-font-down"
                     title="Μικρότερα γράμματα εργαλειοθήκης σημειωματάριου">A−</button>
@@ -263,9 +209,6 @@
                     title="Μεγαλύτερα γράμματα εργαλειοθήκης σημειωματάριου">A+</button>
             </div>
         </div>
-
-        <!-- Κρυφή αρχικά μπάρα Προτύπων (Templates) — εμφανίζεται με κλικ στο «Πρότυπα ▾» -->
-        <div class="notepad-templates-bar" id="notepad-templates-bar"></div>
 
         <div class="notepad-body">
             <div class="highlight-wrap" id="notepad-highlight-wrap">
@@ -280,57 +223,72 @@
             <div class="notepad-preview-outer" id="notepad-preview-outer">
                 <div class="notepad-preview-header">
                     <span class="notepad-preview-label">Ζωντανή προεπισκόπηση (phpBB + KaTeX)</span>
-                    <button class="mg-nav-led" id="notepad-nav-indicator" type="button" aria-pressed="false"
-                        title="Διαισθητική πλοήγηση (← / → εντός LaTeX): ΑΝΕΝΕΡΓΗ — Κάντε κλικ στην προεπισκόπηση για ενεργοποίηση (Alt+I στις Ρυθμίσεις)">
+                    <span class="mg-nav-led" id="notepad-nav-indicator" role="status" aria-live="polite"
+                        title="Ενεργός τρόπος γραφής: Κώδικας (κάντε κλικ στη ζωντανή προεπισκόπηση για επεξεργασία WYSIWYG)">
                         <span class="mg-nav-dot" aria-hidden="true"></span>
-                        <span>Πλοήγηση</span>
-                    </button>
+                    </span>
+                    <button class="notepad-btn notepad-chip-btn" id="notepad-layout-btn" type="button" aria-pressed="false"
+                        title="Διάταξη Σημειωματάριου: Δίπλα (Δεξιά) ↔ Κάτω (Alt+Shift+D)">Κάτω</button>
                     <div class="notepad-scale-control" role="group" aria-label="Μέγεθος προεπισκόπησης σημειωματάριου">
                         <button class="auto-badge active" id="notepad-preview-inline-auto-badge" type="button"
                             aria-pressed="true" title="Αυτόματη κλιμάκωση προεπισκόπησης (Alt+0)">AUTO</button>
                         <button id="notepad-preview-inline-zoom-out" type="button"
                             title="Μικρότερη προεπισκόπηση (Alt+-)">Aa−</button>
-                        <input type="number" id="notepad-preview-inline-zoom-label" min="65" max="240" step="1"
+                        <input type="number" id="notepad-preview-inline-zoom-label" min="65" max="320" step="1"
                             value="100" title="Μέγεθος προεπισκόπησης (%)">
                         <button id="notepad-preview-inline-zoom-in" type="button"
                             title="Μεγαλύτερη προεπισκόπηση (Alt+=)">Aa+</button>
                         <button type="button" class="notepad-reader-edit-btn" id="notepad-reader-edit-btn" aria-pressed="false"
-                            title="Ενεργοποίηση/Απενεργοποίηση επεξεργασίας σημειωματάριου στην οθόνη ανάγνωσης (Alt+W)">✏️
-                            Επεξεργασία</button>
+                            title="Εμφάνιση πηγαίου κώδικα LaTeX / phpBB (διπλή προβολή) (Alt+W)">Κώδικας LaTeX</button>
                         <button type="button" class="notepad-reader-btn" id="notepad-reader-btn" aria-pressed="false"
-                            title="Λειτουργία Ανάγνωσης — Πλήρης οθόνη ζωντανής προεπισκόπησης (Alt+F)">📖
-                            Ανάγνωση</button>
+                            title="Λειτουργία Ανάγνωσης — Πλήρης οθόνη ζωντανής προεπισκόπησης (Alt+F)">Ανάγνωση</button>
                     </div>
                 </div>
-                <div class="notepad-preview-wrap" id="notepad-preview-wrap">
+                <div class="notepad-preview-wrap" id="notepad-preview-wrap" tabindex="-1">
                     <div id="notepad-preview" class="phpbb-preview-body"></div>
                 </div>
             </div>
         </div>
         <div class="notepad-footer">
-            <button class="notepad-clear-safe" id="notepad-clear-btn" type="button"
-                title="Εκκαθάριση σημειωματάριου">Εκκαθάριση</button>
-            <button class="action ghost" id="notepad-copy-btn" type="button"
-                title="Αντιγραφή κειμένου σημειωματάριου (Alt+C)">Αντιγραφή</button>
-            <div class="export-dropdown">
-                <button class="action ghost export-more-trigger" id="notepad-export-btn" type="button"
-                    title="Επιλογές εξαγωγής σημειωματάριου (Alt+Z)">Εξαγωγή ▾</button>
-                <div class="export-menu" id="notepad-export-menu">
-                    <button type="button" data-export-fmt="png">Εικόνα PNG (.png)</button>
-                    <button type="button" data-export-fmt="png-transparent">PNG (Διαφανές φόντο)</button>
-                    <button type="button" data-export-fmt="pdf">Έγγραφο PDF (.pdf)</button>
-                    <button type="button" data-export-fmt="svg">Διανυσματικό SVG (.svg)</button>
-                    <button type="button" data-export-fmt="tex">Πηγαίο LaTeX (.tex)</button>
-                    <button type="button" data-export-fmt="html">Ιστοσελίδα HTML (.html)</button>
-                    <button type="button" data-export-fmt="md">Markdown (.md)</button>
-                    <div class="export-menu-divider" role="separator"></div>
-                    <button type="button" data-export-fmt="bbcode-tex">Αντιγραφή BBCode ([tex])</button>
-                    <button type="button" data-export-fmt="bbcode">Αντιγραφή BBCode ([latex])</button>
+            <div class="notepad-footer-tools">
+                <div class="notepad-scale-control" role="group" aria-label="Μέγεθος κειμένου σημειωματάριου">
+                    <button class="auto-badge active" id="notepad-text-auto-badge" type="button" aria-pressed="true"
+                        title="Αυτόματη κλιμάκωση κειμένου σημειωματάριου">AUTO</button>
+                    <button id="notepad-text-zoom-out" type="button" title="Μικρότερο κείμενο">Aa−</button>
+                    <input type="number" id="notepad-text-zoom-label" min="75" max="300" step="1" value="100"
+                        title="Μέγεθος κειμένου σημειωματάριου (%)">
+                    <button id="notepad-text-zoom-in" type="button" title="Μεγαλύτερο κείμενο">Aa+</button>
                 </div>
+                <button class="notepad-btn active" id="notepad-toolbar-toggle-btn" type="button" aria-pressed="true"
+                    title="Εμφάνιση/Απόκρυψη εργαλειοθήκης σημειωματάριου phpBB (Alt+G)">Εργαλειοθήκη ▾</button>
+                <button class="notepad-btn accent" id="notepad-pull-btn" type="button"
+                    title="Επικόλληση της τρέχουσας εξίσωσης από τον Editor (Alt+E)">+ Από Editor</button>
             </div>
-            <button class="action primary" id="notepad-insert-btn" type="button"
-                title="Εισαγωγή κειμένου σημειωματάριου στη σελίδα (Ctrl+Enter)">Εισαγωγή<span class="hide-sm">&nbsp;στη
-                    σελίδα</span></button>
+            <div class="notepad-footer-actions">
+                <button class="notepad-clear-safe" id="notepad-clear-btn" type="button"
+                    title="Εκκαθάριση σημειωματάριου">Εκκαθάριση</button>
+                <button class="action ghost" id="notepad-copy-btn" type="button"
+                    title="Αντιγραφή κειμένου σημειωματάριου (Alt+C)">Αντιγραφή</button>
+                <div class="export-dropdown">
+                    <button class="action ghost export-more-trigger" id="notepad-export-btn" type="button"
+                        title="Επιλογές εξαγωγής σημειωματάριου (Alt+Z)">Εξαγωγή ▾</button>
+                    <div class="export-menu" id="notepad-export-menu">
+                        <button type="button" data-export-fmt="png">Εικόνα PNG (.png)</button>
+                        <button type="button" data-export-fmt="png-transparent">PNG (Διαφανές φόντο)</button>
+                        <button type="button" data-export-fmt="pdf">Έγγραφο PDF (.pdf)</button>
+                        <button type="button" data-export-fmt="svg">Διανυσματικό SVG (.svg)</button>
+                        <button type="button" data-export-fmt="tex">Πηγαίο LaTeX (.tex)</button>
+                        <button type="button" data-export-fmt="html">Ιστοσελίδα HTML (.html)</button>
+                        <button type="button" data-export-fmt="md">Markdown (.md)</button>
+                        <div class="export-menu-divider" role="separator"></div>
+                        <button type="button" data-export-fmt="bbcode-tex">Αντιγραφή BBCode ([tex])</button>
+                        <button type="button" data-export-fmt="bbcode">Αντιγραφή BBCode ([latex])</button>
+                    </div>
+                </div>
+                <button class="action primary" id="notepad-insert-btn" type="button"
+                    title="Εισαγωγή κειμένου σημειωματάριου στη σελίδα (Ctrl+Enter)">Εισαγωγή<span class="hide-sm">&nbsp;στη
+                        σελίδα</span></button>
+            </div>
         </div>
     </section>
 
@@ -338,24 +296,25 @@
 
     <!-- Ρυθμίσεις -->
     <div class="panel-popup" id="settings-popup">
+        <div class="settings-group-title">Εργαλειοθήκη &amp; Μεγέθη</div>
         <div class="settings-section-label">Σετ Εργαλειοθήκης</div>
         <select id="toolbar-dataset-select" class="settings-select">
-            <option value="codecogs_alike">Πλήρες Σετ</option>
-            <option value="basic">Βασικά Μαθηματικά</option>
-            <option value="science">Επιστήμες / Μηχανική</option>
+            <option value="basic">Επίπεδο 1 · Βασικά Μαθηματικά</option>
+            <option value="codecogs_alike" selected>Επίπεδο 2 · Προχωρημένα Μαθηματικά</option>
+            <option value="science">Επίπεδο 3 · Επιστήμες / Μηχανική</option>
         </select>
         <div class="settings-section-label">Κείμενο Editor</div>
         <div class="editor-size-control" role="group">
             <button class="auto-badge active" id="editor-auto-badge" type="button" aria-pressed="true">AUTO</button>
             <button id="editor-zoom-out" type="button">Aa−</button>
-            <input type="number" id="editor-zoom-label" min="70" max="200" step="1" value="100">
+            <input type="number" id="editor-zoom-label" min="70" max="300" step="1" value="100">
             <button id="editor-zoom-in" type="button">Aa+</button>
         </div>
         <div class="settings-section-label settings-section-label--spaced">Κείμενο Σημειωματάριου</div>
         <div class="editor-size-control" role="group">
             <button class="auto-badge active" id="notepad-auto-badge" type="button" aria-pressed="true">AUTO</button>
             <button id="notepad-zoom-out" type="button">Aa−</button>
-            <input type="number" id="notepad-zoom-label" min="75" max="220" step="1" value="100">
+            <input type="number" id="notepad-zoom-label" min="75" max="300" step="1" value="100">
             <button id="notepad-zoom-in" type="button">Aa+</button>
         </div>
         <div class="settings-section-label settings-section-label--spaced">Προεπισκόπηση Σημειωματάριου</div>
@@ -363,7 +322,7 @@
             <button class="auto-badge active" id="notepad-preview-auto-badge" type="button"
                 aria-pressed="true">AUTO</button>
             <button id="notepad-preview-zoom-out" type="button">Aa−</button>
-            <input type="number" id="notepad-preview-zoom-label" min="65" max="240" step="1" value="100">
+            <input type="number" id="notepad-preview-zoom-label" min="65" max="320" step="1" value="100">
             <button id="notepad-preview-zoom-in" type="button">Aa+</button>
         </div>
         <div class="settings-section-label settings-section-label--spaced">Εργαλειοθήκη Σημειωματάριου</div>
@@ -371,27 +330,59 @@
             <button class="auto-badge active" id="notepad-toolbar-auto-badge" type="button"
                 aria-pressed="true">AUTO</button>
             <button id="notepad-toolbar-size-down" type="button">A−</button>
-            <input type="number" id="notepad-toolbar-size-label" min="80" max="200" step="10" value="100">
+            <input type="number" id="notepad-toolbar-size-label" min="80" max="240" step="10" value="100">
             <button id="notepad-toolbar-size-up" type="button">A+</button>
         </div>
         <div class="settings-section-label settings-section-label--spaced">Μέγεθος Συμβόλων</div>
         <div class="toolbar-size-control" role="group">
             <button class="auto-badge active" id="toolbar-auto-badge" type="button" aria-pressed="true">AUTO</button>
             <button id="toolbar-size-down" type="button">A−</button>
-            <input type="number" id="toolbar-size-label" min="70" max="200" step="10" value="100">
+            <input type="number" id="toolbar-size-label" min="70" max="240" step="10" value="100">
             <button id="toolbar-size-up" type="button">A+</button>
         </div>
         <div class="settings-section-label settings-section-label--spaced">Κουμπιά Κεφαλίδας</div>
         <div class="toolbar-size-control" role="group" aria-label="Μέγεθος κουμπιών κεφαλίδας">
             <button class="auto-badge active" id="header-btn-auto-badge" type="button" aria-pressed="true">AUTO</button>
             <button id="header-btn-size-down" type="button">A−</button>
-            <input type="number" id="header-btn-size-label" min="80" max="200" step="10" value="100">
+            <input type="number" id="header-btn-size-label" min="80" max="220" step="10" value="100">
             <button id="header-btn-size-up" type="button">A+</button>
         </div>
+        <div class="settings-group-title">Γραμματοσειρές &amp; Παράθυρο</div>
+        <div class="settings-section-label">Γραμματοσειρά Προεπισκόπησης &amp; Κειμένου</div>
+        <select id="sans-font-select" class="settings-select" aria-label="Γραμματοσειρά Προεπισκόπησης">
+            <option value="default">Προεπιλογή συστήματος</option>
+            <option value="segoe">Segoe UI (Καθαρή)</option>
+            <option value="arial">Arial (Ευανάγνωστη)</option>
+            <option value="verdana">Verdana (Ευρεία)</option>
+            <option value="tahoma">Tahoma (Συμπαγής)</option>
+            <option value="georgia">Georgia (Serif / Βιβλίου)</option>
+        </select>
+        <div class="settings-section-label settings-section-label--spaced">Γραμματοσειρά Κώδικα (LaTeX / phpBB)</div>
+        <select id="mono-font-select" class="settings-select" aria-label="Γραμματοσειρά Κώδικα">
+            <option value="default">Προεπιλογή (JetBrains / Consolas)</option>
+            <option value="jetbrains">JetBrains Mono</option>
+            <option value="consolas">Consolas (Windows)</option>
+            <option value="fira">Fira Code</option>
+            <option value="courier">Courier New</option>
+        </select>
+        <div class="settings-section-label settings-section-label--spaced">Μέγεθος Παραθύρου</div>
+        <select id="window-size-select" class="settings-select" aria-label="Μέγεθος Παραθύρου">
+            <option value="default">Προεπιλογή (920 × 700)</option>
+            <option value="compact">Συμπαγές (660 × 540)</option>
+            <option value="normal">Κανονικό (920 × 700)</option>
+            <option value="wide">Ευρύ (1120 × 780)</option>
+            <option value="xlarge">Πολύ Μεγάλο (1320 × 880)</option>
+            <option value="maximize">Πλήρες / Μεγιστοποίηση</option>
+        </select>
+        <div class="settings-group-title">Λειτουργίες &amp; Βοηθήματα</div>
         <button class="syntax-toggle-btn active" id="syntax-highlight-toggle" type="button"
             aria-pressed="true" title="Ενεργοποίηση/Απενεργοποίηση χρωματισμού σύνταξης (Alt+H)">Χρωματισμός Σύνταξης: ΕΝΕΡΓΟΣ</button>
-        <button class="syntax-toggle-btn active" id="intuitive-nav-toggle" type="button"
-            aria-pressed="true" title="Ενεργοποίηση/Απενεργοποίηση διαισθητικής πλοήγησης LaTeX με κλικ στην προεπισκόπηση (Alt+I)">Διαισθητική Πλοήγηση: ΕΝΕΡΓΗ</button>
+        <button class="syntax-toggle-btn active" id="preview-edit-toggle" type="button"
+            aria-pressed="true" title="Ενεργοποίηση/Απενεργοποίηση τροποποίησης και επικόλλησης μέσα από τη ζωντανή προεπισκόπηση (Alt+I)">Επεξεργασία από Προεπισκόπηση: ΕΝΕΡΓΗ</button>
+        <button class="syntax-toggle-btn" id="preview-click-lock-toggle" type="button"
+            aria-pressed="false" title="Όταν είναι ενεργό, το κλικ/επιλογή στην προεπισκόπηση δεν μετακινεί τον κέρσορα κώδικα για εύκολη αντιγραφή (Alt+Shift+E)">Σταθερός Κέρσορας Προεπισκόπησης: ΑΝΕΝΕΡΓΟΣ</button>
+        <button class="syntax-toggle-btn" id="notepad-layout-toggle" type="button"
+            aria-pressed="false" title="Εναλλαγή θέσης προεπισκόπησης Σημειωματάριου: Δεξιά ή Κάτω (Alt+Shift+D)">Διάταξη Σημειωματάριου: Δεξιά</button>
         <button class="syntax-toggle-btn active" id="auto-braces-toggle" type="button"
             aria-pressed="true" title="Αυτόματα άγκιστρα { } σε εκθέτες, δείκτες, αριθμητές κ.λπ. (Alt+J)">Αυτόματα Άγκιστρα { }: ΕΝΕΡΓΑ</button>
         <button class="syntax-toggle-btn active" id="follow-mode-toggle" type="button"
@@ -400,6 +391,12 @@
             aria-pressed="true" title="Εμφάνιση/Απόκρυψη παλλόμενου κέρσορα μέσα στη ζωντανή προεπισκόπηση (Alt+9)">Κέρσορας Προεπισκόπησης: ΕΜΦΑΝΗΣ</button>
         <button class="syntax-toggle-btn active" id="slot-hints-toggle" type="button"
             aria-pressed="true" title="Εμφάνιση/Απόκρυψη διακεκομμένων πλαισίων ενεργού πεδίου LaTeX (Alt+Shift+B)">Υποδείξεις Πλαισίου: ΕΝΕΡΓΕΣ</button>
+
+        <div class="settings-group-title">Βοήθεια &amp; Επαναφορά</div>
+        <button class="syntax-toggle-btn" id="tutorial-replay-btn" type="button"
+            title="Άνοιγμα του διαδραστικού οδηγού χρήσης βήμα-βήμα">Επανάληψη Οδηγού Χρήσης (?)</button>
+        <button class="settings-reset-btn" id="reset-defaults-btn" type="button"
+            title="Επαναφορά όλων των ρυθμίσεων, γραμματοσειρών, κλιμάκωσης, διάταξης &amp; παραθύρου στις αρχικές προεπιλογές (διατηρεί το κείμενό σας)">Επαναφορά Προεπιλογών</button>
 
         <div class="settings-donate-wrap">
             <div class="settings-donate-card active" id="settings-donate-card">
@@ -438,7 +435,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2>Προσαρμοσμένος Πίνακας</h2>
-                <button class="modal-close" id="close-matrix" title="Κλείσιμο (Esc)">&times;</button>
+                <button class="modal-close" id="close-matrix" type="button" title="Κλείσιμο (Esc)">&times;</button>
             </div>
             <div class="matrix-types">
                 <label class="matrix-type-label"><input type="radio" name="matrix-type" value="matrix" checked><span

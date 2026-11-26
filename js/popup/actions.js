@@ -233,7 +233,7 @@ async function getInlineKatexCss(embedFonts = false) {
           return cssText;
         }
         const fontUrls = new Set();
-        cssText.replace(/url\((fonts\/[^)]+?\.woff2)\)/g, (_, rel) => {
+        cssText.replace(/url\(["']?(fonts\/[^)"']+?\.woff2)["']?\)/g, (_, rel) => {
           fontUrls.add(rel);
           return _;
         });
@@ -249,7 +249,7 @@ async function getInlineKatexCss(embedFonts = false) {
           } catch { }
         }));
         cssText = cssText.replace(/@font-face\{([^}]*)\}/g, (block, inner) => {
-          const m = inner.match(/url\((fonts\/[^)]+?\.woff2)\)/);
+          const m = inner.match(/url\(["']?(fonts\/[^)"']+?\.woff2)["']?\)/);
           if (m && fontMap.has(m[1])) {
             const cleanedInner = inner.replace(/src:[^;]+;/, `src:url("${fontMap.get(m[1])}") format("woff2");`);
             return `@font-face{${cleanedInner}}`;
@@ -429,16 +429,46 @@ async function exportCanvas(mode, content, scale, bgMode = 'white') {
     const canvas = await html2canvas(temp, {
       backgroundColor: isTransparent ? null : '#ffffff',
       scale: safeScale,
+      x: 0,
+      y: 0,
       width: w,
       height: h,
       scrollX: 0,
       scrollY: 0,
+      windowWidth: Math.max(w + 40, 1024),
+      windowHeight: Math.max(h + 40, 768),
       logging: false,
       useCORS: true,
       onclone: (_doc, cloned) => {
+        const docEl = _doc.documentElement;
+        docEl.removeAttribute('data-transparent');
+        docEl.removeAttribute('data-full-transparent');
+        docEl.removeAttribute('data-blur');
+        docEl.removeAttribute('data-desktop');
+        docEl.removeAttribute('data-maximized');
+        docEl.style.cssText = `margin:0!important;padding:0!important;width:${w}px!important;height:${h}px!important;min-width:0!important;min-height:0!important;overflow:visible!important;background:transparent!important;`;
+        _doc.body.className = '';
+        _doc.body.style.cssText = `margin:0!important;padding:0!important;display:block!important;width:${w}px!important;height:${h}px!important;min-width:0!important;min-height:0!important;overflow:visible!important;background:transparent!important;`;
+        Array.from(_doc.body.children).forEach(ch => {
+          if (ch !== cloned && ch.tagName !== 'STYLE' && ch.tagName !== 'LINK') {
+            ch.style.setProperty('display', 'none', 'important');
+          }
+        });
+        cloned.style.position = 'relative';
         cloned.style.left = '0';
         cloned.style.top = '0';
-        cloned.style.position = 'static';
+        cloned.style.right = 'auto';
+        cloned.style.bottom = 'auto';
+        cloned.style.zIndex = '1';
+        cloned.style.margin = '0';
+        cloned.style.visibility = 'visible';
+        cloned.style.opacity = '1';
+        cloned.style.setProperty('--ink', inkColor);
+        if (mode === 'editor') {
+          cloned.style.display = 'inline-block';
+          cloned.style.minWidth = `${w}px`;
+          cloned.style.minHeight = `${h}px`;
+        }
         cloned.style.textShadow = 'none';
         cloned.querySelectorAll('*').forEach(el => { el.style.textShadow = 'none'; });
         cloned.querySelectorAll('.katex-mathml').forEach(el => { el.style.display = 'none'; });
@@ -475,6 +505,7 @@ async function exportCanvas(mode, content, scale, bgMode = 'white') {
           el.style.setProperty('color', inkColor, 'important');
         });
         cloned.querySelectorAll('svg').forEach(svg => {
+          svg.style.color = inkColor;
           if (svg.getAttribute('stroke') === 'currentColor') svg.setAttribute('stroke', inkColor);
           const f = svg.getAttribute('fill');
           if (!f || f === 'currentColor') svg.setAttribute('fill', inkColor);
@@ -734,8 +765,10 @@ export async function runExport(mode, format, btn) {
           await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
         }
         const rect = temp.getBoundingClientRect();
-        width = Math.max(180, Math.ceil(rect.width) + 12);
-        height = Math.max(80, Math.ceil(rect.height) + 12);
+        const innerW = Math.max(40, Math.ceil(rect.width));
+        const innerH = Math.max(40, Math.ceil(rect.height));
+        width = Math.max(mode === 'notepad' ? 180 : 60, innerW + 12);
+        height = Math.max(mode === 'notepad' ? 80 : 60, innerH + 12);
 
         const clone = temp.cloneNode(true);
         clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
@@ -744,6 +777,9 @@ export async function runExport(mode, format, btn) {
         clone.style.top = '0';
         clone.style.zIndex = 'auto';
         clone.style.margin = '0';
+        if (mode === 'editor') {
+          clone.style.width = `${innerW}px`;
+        }
         serializedBody = new XMLSerializer().serializeToString(clone);
       } finally {
         temp.remove();

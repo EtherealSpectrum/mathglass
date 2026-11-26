@@ -6,7 +6,12 @@ contextBridge.exposeInMainWorld('mathglassDesktop', {
   winAction: action => ipcRenderer.send('mathglass:win-action', action),
   getBounds: () => ipcRenderer.invoke('mathglass:get-bounds'),
   setBounds: bounds => ipcRenderer.send('mathglass:resize-bounds', bounds),
+  setWindowSize: opts => ipcRenderer.send('mathglass:set-window-size', opts),
   getState: () => ipcRenderer.invoke('mathglass:get-state'),
+  startDrag: () => ipcRenderer.send('mathglass:drag-start'),
+  dragMove: () => ipcRenderer.send('mathglass:drag-move'),
+  endDrag: () => ipcRenderer.send('mathglass:drag-end'),
+  snapZone: zone => ipcRenderer.send('mathglass:snap-zone', zone),
   openExternal: url => ipcRenderer.send('mathglass:open-external', url),
   fetchImageDataUrl: url => ipcRenderer.invoke('mathglass:fetch-image-data-url', url),
   onWindowState: cb => {

@@ -14,28 +14,28 @@
 :root[data-theme="dark"] #notepad-highlight-wrap #notepad-input::placeholder {
   color: rgba(162, 170, 186, 0.56) !important;
   -webkit-text-fill-color: rgba(162, 170, 186, 0.56) !important;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65) !important;
+  text-shadow: none !important;
 }
 
 :root[data-theme="light"] #notepad-highlight-wrap #notepad-input::placeholder {
   color: rgba(58, 63, 74, 0.54) !important;
   -webkit-text-fill-color: rgba(58, 63, 74, 0.54) !important;
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.72) !important;
+  text-shadow: none !important;
 }
 
-/* Σκούρο θέμα + διαφάνεια: ευκρινής σκιά ώστε να διαβάζεται, αλλά αισθητά πιο αχνή από το κείμενο χρήστη */
-:root[data-theme="dark"][data-transparent="true"] #notepad-highlight-wrap #notepad-input::placeholder {
-  color: rgba(176, 184, 200, calc(0.52 + (1 - var(--panel-alpha, 1)) * 0.10)) !important;
-  -webkit-text-fill-color: rgba(176, 184, 200, calc(0.52 + (1 - var(--panel-alpha, 1)) * 0.10)) !important;
+/* Σκούρο θέμα + 100% διαφάνεια: ευκρινής σκιά ώστε να διαβάζεται, αλλά αισθητά πιο αχνή από το κείμενο χρήστη */
+:root[data-theme="dark"][data-full-transparent="true"] #notepad-highlight-wrap #notepad-input::placeholder {
+  color: rgba(176, 184, 200, 0.62) !important;
+  -webkit-text-fill-color: rgba(176, 184, 200, 0.62) !important;
   text-shadow:
     0 1px 2px rgba(0, 0, 0, 0.92),
     0 0 6px rgba(0, 0, 0, 0.75) !important;
 }
 
-/* Ανοιχτό θέμα + διαφάνεια */
-:root[data-theme="light"][data-transparent="true"] #notepad-highlight-wrap #notepad-input::placeholder {
-  color: rgba(58, 64, 76, calc(0.52 + (1 - var(--panel-alpha, 1)) * 0.10)) !important;
-  -webkit-text-fill-color: rgba(58, 64, 76, calc(0.52 + (1 - var(--panel-alpha, 1)) * 0.10)) !important;
+/* Ανοιχτό θέμα + 100% διαφάνεια */
+:root[data-theme="light"][data-full-transparent="true"] #notepad-highlight-wrap #notepad-input::placeholder {
+  color: rgba(58, 64, 76, 0.62) !important;
+  -webkit-text-fill-color: rgba(58, 64, 76, 0.62) !important;
   text-shadow:
     0 1px 2px rgba(255, 255, 255, 0.95),
     0 0 6px rgba(255, 255, 255, 0.8) !important;
@@ -52,63 +52,8 @@
 }
 
 /* =========================================================
-   Πρότυπα (Templates) & Μετρητής Λέξεων / Χαρακτήρων
+   Μετρητής Λέξεων / Χαρακτήρων Σημειωματάριου
    ========================================================= */
-.notepad-templates-bar {
-  position: relative;
-  z-index: 300;
-  display: none;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border-bottom: 1px solid var(--line);
-  background: var(--toolbar-bg);
-}
-
-:root[data-theme="dark"][data-transparent="true"] .notepad-templates-bar {
-  background: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
-  border-bottom-color: rgba(255, 255, 255, 0.12) !important;
-}
-
-:root[data-theme="light"][data-transparent="true"] .notepad-templates-bar {
-  background: rgba(var(--toolbar-rgb), var(--panel-alpha)) !important;
-  border-bottom-color: rgba(17, 18, 20, 0.18) !important;
-}
-
-.notepad-templates-bar.active {
-  display: flex;
-}
-
-.notepad-templates-label {
-  font-size: calc(11px * var(--notepad-toolbar-scale, 1));
-  font-weight: 600;
-  color: var(--ink-soft);
-  margin-right: 2px;
-}
-
-.notepad-tpl-chip {
-  border: 1px solid var(--line);
-  background: var(--btn-bg);
-  color: var(--ink);
-  border-radius: 5px;
-  padding: calc(3px * var(--notepad-toolbar-scale, 1)) calc(8px * var(--notepad-toolbar-scale, 1));
-  font-family: var(--sans);
-  font-size: calc(11px * var(--notepad-toolbar-scale, 1));
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-
-:root[data-transparent="true"] .notepad-tpl-chip {
-  background: rgba(var(--panel-rgb), min(0.75, calc(var(--panel-alpha) + 0.12))) !important;
-  border-color: rgba(128, 128, 128, 0.3) !important;
-}
-
-.notepad-tpl-chip:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft, rgba(139, 123, 255, 0.16));
-}
-
 #notepad-highlight-wrap #notepad-highlight,
 #notepad-highlight-wrap #notepad-caret-mirror,
 #notepad-highlight-wrap #notepad-input {
@@ -183,8 +128,9 @@
   transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
 }
 
-body:not(.notepad-reader-mode) .notepad-scale-control button.notepad-reader-edit-btn {
-  display: none !important;
+.notepad-scale-control button.notepad-reader-edit-btn {
+  border-color: rgba(139, 123, 255, 0.36);
+  background: rgba(139, 123, 255, 0.1);
 }
 
 .notepad-scale-control button.notepad-reader-btn:hover,
@@ -196,19 +142,17 @@ body:not(.notepad-reader-mode) .notepad-scale-control button.notepad-reader-edit
   color: #ffffff;
 }
 
-body.notepad-reader-mode>main,
-body.notepad-reader-mode>footer,
-body.notepad-reader-mode:not(.notepad-reader-edit) #toolbars-container,
-body.notepad-reader-mode:not(.notepad-reader-edit) .notepad-bar,
-body.notepad-reader-mode:not(.notepad-reader-edit) .phpbb-toolbar,
-body.notepad-reader-mode:not(.notepad-reader-edit) .notepad-templates-bar,
-body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-highlight-wrap,
-body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-resizer,
-body.notepad-reader-mode:not(.notepad-reader-edit) .notepad-footer {
+body.notepad-open.notepad-reader-mode main,
+body.notepad-open.notepad-reader-mode footer,
+body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) #toolbars-container,
+body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) .phpbb-toolbar,
+body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) #notepad-highlight-wrap,
+body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) #notepad-resizer,
+body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) .notepad-footer {
   display: none !important;
 }
 
-body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-view {
+body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) #notepad-view {
   display: flex !important;
   position: fixed !important;
   inset: 0 !important;
@@ -217,23 +161,32 @@ body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-view {
   z-index: 9998 !important;
 }
 
-body.notepad-reader-mode .notepad-body {
+body.notepad-open.notepad-reader-mode .notepad-body,
+body.notepad-open.notepad-reader-mode .notepad-body[data-notepad-layout="bottom"] {
   display: flex !important;
+  flex-direction: row !important;
   flex: 1 1 auto !important;
   min-height: 0 !important;
   height: 100% !important;
 }
 
-body.notepad-reader-mode #notepad-preview-outer,
-body.notepad-reader-mode #notepad-preview-outer.hidden {
+body.notepad-open.notepad-reader-mode #notepad-preview-outer,
+body.notepad-open.notepad-reader-mode #notepad-preview-outer.hidden {
   display: flex !important;
   flex-direction: column !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  height: 100% !important;
   max-height: none !important;
   max-width: none !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  border-top: none !important;
+  border-left: none !important;
 }
 
-body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer,
-body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer.hidden {
+body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer,
+body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer.hidden {
   position: fixed !important;
   inset: 0 !important;
   width: 100% !important;
@@ -243,7 +196,11 @@ body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer.hidden
   border-radius: 0 !important;
 }
 
-body.notepad-reader-mode.notepad-reader-edit #notepad-view {
+body.notepad-open.notepad-reader-mode.notepad-reader-edit #preview-toggle {
+  display: none !important;
+}
+
+body.notepad-open.notepad-reader-mode.notepad-reader-edit #notepad-view {
   display: flex !important;
   position: static !important;
   inset: auto !important;
@@ -254,7 +211,7 @@ body.notepad-reader-mode.notepad-reader-edit #notepad-view {
   z-index: auto !important;
 }
 
-body.notepad-reader-mode.notepad-reader-edit #notepad-highlight-wrap {
+body.notepad-open.notepad-reader-mode.notepad-reader-edit #notepad-highlight-wrap {
   position: fixed !important;
   left: -9999px !important;
   top: 0 !important;
@@ -272,12 +229,12 @@ body.notepad-reader-mode.notepad-reader-edit #notepad-highlight-wrap {
   margin: 0 !important;
 }
 
-body.notepad-reader-mode.notepad-reader-edit #notepad-resizer {
+body.notepad-open.notepad-reader-mode.notepad-reader-edit #notepad-resizer {
   display: none !important;
 }
 
-body.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer,
-body.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer.hidden {
+body.notepad-open.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer,
+body.notepad-open.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer.hidden {
   position: static !important;
   inset: auto !important;
   flex: 1 1 auto !important;
@@ -292,81 +249,95 @@ body.notepad-reader-mode.notepad-reader-edit #notepad-preview-outer.hidden {
 
 /* Στο Web Extension το εξωτερικό wrapper βάφει τη διαφάνεια· στο Desktop (Electron)
    δεν υπάρχει wrapper, οπότε το #notepad-preview-outer πρέπει να σέβεται το --panel-alpha */
-:root[data-transparent="true"]:has(body.notepad-reader-mode),
-:root[data-transparent="true"] body.notepad-reader-mode,
-:root[data-transparent="true"] body.notepad-reader-mode #notepad-view,
-:root[data-transparent="true"] body.notepad-reader-mode .notepad-body,
-:root:not([data-desktop="true"])[data-transparent="true"] body.notepad-reader-mode #notepad-preview-outer,
-:root[data-transparent="true"] body.notepad-reader-mode #notepad-preview-wrap,
-:root[data-transparent="true"] body.notepad-reader-mode #notepad-preview {
+:root[data-transparent="true"]:has(body.notepad-open.notepad-reader-mode),
+:root[data-transparent="true"] body.notepad-open.notepad-reader-mode,
+:root[data-transparent="true"] body.notepad-open.notepad-reader-mode #notepad-view,
+:root[data-transparent="true"] body.notepad-open.notepad-reader-mode .notepad-body,
+:root:not([data-desktop="true"])[data-transparent="true"] body.notepad-open.notepad-reader-mode #notepad-preview-outer,
+:root[data-transparent="true"] body.notepad-open.notepad-reader-mode #notepad-preview-wrap,
+:root[data-transparent="true"] body.notepad-open.notepad-reader-mode #notepad-preview {
   background: transparent !important;
   background-color: transparent !important;
 }
 
-:root[data-desktop="true"][data-transparent="true"] body.notepad-reader-mode #notepad-preview-outer {
+:root[data-desktop="true"][data-transparent="true"] body.notepad-open.notepad-reader-mode #notepad-preview-outer {
   background: rgba(var(--renderer-rgb), var(--panel-alpha, 1)) !important;
   background-color: rgba(var(--renderer-rgb), var(--panel-alpha, 1)) !important;
 }
 
-:root[data-desktop="true"]:not([data-maximized="true"]) body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer,
-:root[data-desktop="true"]:not([data-maximized="true"]) body.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer.hidden {
-  inset: 8px !important;
-  width: calc(100% - 16px) !important;
-  height: calc(100% - 16px) !important;
-  border-radius: 12px !important;
-  border: 1px solid rgba(128, 128, 128, calc(0.22 + 0.14 * var(--panel-alpha, 1))) !important;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, calc(0.45 * var(--panel-alpha, 1))) !important;
+:root[data-desktop="true"]:not([data-maximized="true"]):not([data-snapped="true"]) body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer,
+:root[data-desktop="true"]:not([data-maximized="true"]):not([data-snapped="true"]) body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer.hidden {
+  inset: 4px !important;
+  width: calc(100% - 8px) !important;
+  height: calc(100% - 8px) !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(128, 128, 128, calc(0.14 * var(--panel-alpha, 1))) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, calc(0.10 * var(--panel-alpha, 1))) !important;
 }
 
-:root[data-transparent="true"] body.notepad-reader-mode #notepad-preview-outer {
+:root[data-desktop="true"][data-snapped="true"] body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer,
+:root[data-desktop="true"][data-snapped="true"] body.notepad-open.notepad-reader-mode:not(.notepad-reader-edit) #notepad-preview-outer.hidden {
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+:root[data-transparent="true"] body.notepad-open.notepad-reader-mode #notepad-preview-outer {
   color: var(--ink) !important;
 }
 
-:root:not([data-desktop="true"])[data-transparent="true"][data-blur="true"] body.notepad-reader-mode #notepad-preview-outer {
+:root:not([data-desktop="true"])[data-transparent="true"][data-blur="true"] body.notepad-open.notepad-reader-mode #notepad-preview-outer {
   backdrop-filter: blur(10px) !important;
   -webkit-backdrop-filter: blur(10px) !important;
 }
 
-:root[data-transparent="true"][data-blur="false"] body.notepad-reader-mode #notepad-preview-outer {
+:root[data-transparent="true"][data-blur="false"] body.notepad-open.notepad-reader-mode #notepad-preview-outer {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
 
-:root[data-transparent="false"][data-theme="dark"] body.notepad-reader-mode #notepad-preview-outer {
+:root[data-transparent="false"][data-theme="dark"] body.notepad-open.notepad-reader-mode #notepad-preview-outer {
   background: #0f1219 !important;
   color: #e8ecf4 !important;
 }
 
-:root[data-transparent="false"][data-theme="light"] body.notepad-reader-mode #notepad-preview-outer {
+:root[data-transparent="false"][data-theme="light"] body.notepad-open.notepad-reader-mode #notepad-preview-outer {
   background: #faf8f4 !important;
   color: #181a1f !important;
 }
 
-:root:not([data-desktop="true"])[data-transparent="true"][data-theme="dark"] body.notepad-reader-mode .notepad-preview-header,
-:root:not([data-desktop="true"])[data-transparent="true"][data-theme="light"] body.notepad-reader-mode .notepad-preview-header {
+:root:not([data-desktop="true"])[data-transparent="true"][data-theme="dark"] body.notepad-open.notepad-reader-mode .notepad-preview-header,
+:root:not([data-desktop="true"])[data-transparent="true"][data-theme="light"] body.notepad-open.notepad-reader-mode .notepad-preview-header {
   background: rgba(var(--toolbar-rgb), var(--panel-alpha, 1)) !important;
 }
 
-:root[data-desktop="true"][data-transparent="true"] body.notepad-reader-mode .notepad-preview-header {
+:root[data-desktop="true"][data-transparent="true"] body.notepad-open.notepad-reader-mode .notepad-preview-header {
   background: transparent !important;
 }
 
-body.notepad-reader-mode .notepad-preview-header {
+body.notepad-open.notepad-reader-mode .notepad-preview-header {
   padding: 10px 20px !important;
   border-bottom: 1px solid var(--line) !important;
 }
 
-body.notepad-reader-mode #notepad-preview-wrap {
+body.notepad-open.notepad-reader-mode.notepad-reader-edit .notepad-preview-header {
+  padding: 5px 10px !important;
+}
+
+body.notepad-open.notepad-reader-mode #notepad-preview-wrap {
   flex: 1 1 auto !important;
   overflow-y: auto !important;
   padding: 28px 24px 56px !important;
 }
 
-body.notepad-reader-mode.notepad-reader-edit #notepad-preview-wrap {
-  padding: 18px 20px 36px !important;
+body.notepad-open.notepad-reader-mode.notepad-reader-edit #notepad-preview-wrap {
+  padding: 14px 16px 28px !important;
 }
 
-body.notepad-reader-mode #notepad-preview {
+body.notepad-open.notepad-reader-mode #notepad-preview {
   width: 100% !important;
   max-width: none !important;
   margin: 0 !important;

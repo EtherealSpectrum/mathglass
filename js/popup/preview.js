@@ -3,6 +3,7 @@ import { $, on, clamp, rafThrottle } from '../core/dom.js';
 import { computeAutoScale } from '../core/scale.js';
 import { translateLatexErrorToGreek } from '../core/errors.js';
 import { resolveLatexOffsetAtPoint, applyLatexSelectionHighlight, clearLatexSelectionHighlight, applyActiveSlotHighlight, clearActiveSlotHighlight } from '../core/latex-click.js';
+import { replaceRangePreservingUndo } from '../core/latex-nav.js';
 import { get, set, mirrorGet, mirrorSet } from '../core/storage.js';
 import { state, setSize } from './settings.js';
 
@@ -485,7 +486,9 @@ export function render(shouldScroll = false) {
     try {
         if (!src) {
             state.previewWrap.classList.remove('error');
-            state.preview.innerHTML = '<span class="placeholder">Η προεπισκόπηση θα εμφανιστεί εδώ…</span>';
+            const showEmptyCaret = !sel.active && state.previewCaretEnabled !== false && state.previewEditEnabled !== false && state.previewNavActive;
+            state.preview.innerHTML = (showEmptyCaret ? '<span class="mg-np-text-caret" aria-hidden="true"></span>' : '') +
+                '<span class="placeholder">Η προεπισκόπηση θα εμφανιστεί εδώ…</span>';
         } else {
             const showCaret = !sel.active && state.previewCaretEnabled !== false;
             const res = renderLatexWithCaret(raw, showCaret ? cursorPos : null, state.alignLeft, true, isLight);
@@ -790,7 +793,88 @@ export function init(ac) {
     window.__renderPreview = (shouldScroll = false) => render(shouldScroll);
     window.__syncPreviewCursor = syncCursor;
 
+    const unwrapOuterMathDelims = rawText => {
+        const trimmed = String(rawText || '').trim();
+        if (!trimmed) return rawText;
+        const pairs = [
+            ['$$', '$$'],
+            ['\\[', '\\]'],
+            ['\\(', '\\)'],
+            ['[latex]', '[/latex]'],
+            ['[tex]', '[/tex]'],
+            ['$', '$'],
+        ];
+        for (const [open, close] of pairs) {
+            if (trimmed.length >= open.length + close.length) {
+                const low = trimmed.toLowerCase();
+                if (low.startsWith(open) && low.endsWith(close)) {
+                    const inner = trimmed.slice(open.length, trimmed.length - close.length);
+                    if (!inner.includes(close)) return inner.trim();
+                }
+            }
+        }
+        return rawText;
+    };
+
+    let dragStart = null;
+    let suppressNextClick = false;
+
+    on(state.previewWrap, 'mousedown', e => {
+        if (e.button !== 0 || !state.ta || !state.preview) return;
+        if (state.previewClickCursorLock || state.previewEditEnabled === false) {
+            dragStart = null;
+            return;
+        }
+        if (e.target.closest('.preview-controls, .preview-error-msg, .mg-nav-led, button, a')) {
+            dragStart = null;
+            return;
+        }
+        dragStart = { x: e.clientX, y: e.clientY, target: e.target };
+    }, false, sig);
+
+    on(state.previewWrap, 'mouseup', e => {
+        if (!dragStart || e.button !== 0 || !state.ta || !state.preview) return;
+        const startInfo = dragStart;
+        dragStart = null;
+        if (state.previewClickCursorLock || state.previewEditEnabled === false) return;
+        const dist = Math.hypot(e.clientX - startInfo.x, e.clientY - startInfo.y);
+        const sel = window.getSelection();
+        const hasDomSel = Boolean(sel && !sel.isCollapsed && sel.toString().length > 0);
+        if (dist < 5 && !hasDomSel) return;
+
+        const raw = state.ta.value || '';
+        if (!raw.trim()) return;
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        const opts = {
+            displayMode: true,
+            alignLeft: state.alignLeft,
+            isLight,
+            buildBalancedCandidate,
+            injectLatexCaret,
+            findCaretElement,
+        };
+        const p1 = resolveLatexOffsetAtPoint(raw, startInfo.x, startInfo.y, state.preview, { ...opts, clickTarget: startInfo.target });
+        const p2 = resolveLatexOffsetAtPoint(raw, e.clientX, e.clientY, state.preview, { ...opts, clickTarget: e.target });
+        if (p1 === p2) return;
+
+        try { sel?.removeAllRanges(); } catch { }
+        const s = Math.min(p1, p2);
+        const en = Math.max(p1, p2);
+        const dir = p2 < p1 ? 'backward' : 'forward';
+        state.previewNavActive = true;
+        window.__syncNavIndicators?.();
+        try { state.ta.focus({ preventScroll: true }); } catch { state.ta.focus(); }
+        state.ta.setSelectionRange(s, en, dir);
+        suppressNextClick = true;
+        setTimeout(() => { suppressNextClick = false; }, 0);
+        syncCursor();
+    }, false, sig);
+
     on(state.previewWrap, 'click', e => {
+        if (suppressNextClick) {
+            suppressNextClick = false;
+            return;
+        }
         if (!state.ta || !state.preview) return;
         const errJumpEl = e.target.closest('.preview-error-msg[data-err-pos]');
         if (errJumpEl) {
@@ -806,6 +890,7 @@ export function init(ac) {
             return;
         }
         if (e.target.closest('.preview-controls, .preview-error-msg, .mg-nav-led, button, a')) return;
+        if (state.previewClickCursorLock || state.previewEditEnabled === false) return;
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed && sel.toString().length > 0) return;
 
@@ -814,9 +899,10 @@ export function init(ac) {
         const raw = state.ta.value || '';
 
         if (!raw.trim()) {
-            state.previewNavActive = Boolean(state.intuitiveNavEnabled);
+            state.previewNavActive = true;
             window.__syncNavIndicators?.();
             try { state.ta.focus({ preventScroll: true }); } catch { state.ta.focus(); }
+            render(false);
             return;
         }
 
@@ -831,11 +917,12 @@ export function init(ac) {
             findCaretElement,
         });
 
-        state.previewNavActive = Boolean(state.intuitiveNavEnabled);
+        state.previewNavActive = true;
         window.__syncNavIndicators?.();
         try { state.ta.focus({ preventScroll: true }); } catch { state.ta.focus(); }
         state.ta.setSelectionRange(pos, pos);
-        ensureTextareaOffsetVisible(state.ta, pos);
+        window.__maybeAutoWrapEditorSlot?.();
+        ensureTextareaOffsetVisible(state.ta, state.ta.selectionStart ?? pos);
         lastCursorPos = -1;
         lastSelStart = -1;
         lastSelEnd = -1;
@@ -843,6 +930,79 @@ export function init(ac) {
         state.previewWrap.scrollTop = prevTop;
         state.previewWrap.scrollLeft = prevLeft;
         lastProg = { left: state.previewWrap.scrollLeft, top: state.previewWrap.scrollTop };
+    }, false, sig);
+
+    on(state.previewWrap, 'copy', e => {
+        if (!state.ta || !state.preview || !e.clipboardData) return;
+        const raw = state.ta.value || '';
+        if (!raw) return;
+
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed && sel.rangeCount > 0 && state.preview.contains(sel.anchorNode)) {
+            const range = sel.getRangeAt(0);
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            const rawRects = Array.from(range.getClientRects()).filter(r => r.width >= 1.5 && r.height >= 4);
+            let copied = raw;
+
+            if (rawRects.length > 0) {
+                const r0 = rawRects[0];
+                const r1 = rawRects[rawRects.length - 1];
+                const kEl = state.preview.querySelector('.katex-html') || state.preview.querySelector('.katex') || state.preview;
+                const kRect = kEl.getBoundingClientRect();
+                const coversFull = kRect.width > 4 && r0.left <= kRect.left + 4 && r1.right >= kRect.right - 4;
+                if (!coversFull) {
+                    const opts = {
+                        displayMode: true,
+                        alignLeft: state.alignLeft,
+                        isLight,
+                        buildBalancedCandidate,
+                        injectLatexCaret,
+                        findCaretElement,
+                    };
+                    const p1 = resolveLatexOffsetAtPoint(raw, r0.left + 1, (r0.top + r0.bottom) / 2, state.preview, opts);
+                    const p2 = resolveLatexOffsetAtPoint(raw, r1.right - 1, (r1.top + r1.bottom) / 2, state.preview, opts);
+                    const a = Math.min(p1, p2);
+                    const b = Math.max(p1, p2);
+                    if (b > a) copied = raw.slice(a, b);
+                }
+            }
+
+            e.preventDefault();
+            e.clipboardData.setData('text/plain', copied);
+            return;
+        }
+
+        if (state.previewWrap.contains(document.activeElement)) {
+            const s = state.ta.selectionStart ?? 0;
+            const en = state.ta.selectionEnd ?? s;
+            if (en > s) {
+                e.preventDefault();
+                e.clipboardData.setData('text/plain', raw.slice(s, en));
+            }
+        }
+    }, false, sig);
+
+    on(state.previewWrap, 'paste', e => {
+        if (!state.ta || state.previewEditEnabled === false) {
+            if (state.previewEditEnabled === false) e.preventDefault();
+            return;
+        }
+        const plain = e.clipboardData?.getData('text/plain');
+        if (typeof plain !== 'string' || !plain) return;
+        e.preventDefault();
+        const cleaned = unwrapOuterMathDelims(plain);
+        const s = state.ta.selectionStart ?? state.ta.value.length;
+        const en = state.ta.selectionEnd ?? s;
+        state.previewNavActive = true;
+        window.__syncNavIndicators?.();
+        try { state.ta.focus({ preventScroll: true }); } catch { state.ta.focus(); }
+        replaceRangePreservingUndo(state.ta, s, en, cleaned, s + cleaned.length, s + cleaned.length);
+        window.__draftUserEdited = true;
+        const follow = Boolean(state.previewFollowEnabled);
+        if (follow) state.userScrolled = false;
+        render(follow);
+        window.__refreshSyntaxHighlight?.();
+        set(KEYS.draft, state.ta.value);
     }, false, sig);
 
     on(state.previewWrap, 'wheel', e => {
